@@ -6,6 +6,7 @@ Created on 30.12.2016
 from trello.utils import ApiObject, api_field, simple_api_field,\
     collection_api_field
 import datetime
+import inspect
 
 class Attachment(ApiObject):
     
@@ -40,6 +41,16 @@ class Label(ApiObject):
     
     def __repr__(self):
         return "<Label %r:%r>" % (self.name, self.color)
+    
+    def _increment_uses(self):
+        if self.is_loaded:
+            f = inspect.getattr_static(self.__class__, "uses")
+            f.set_value(self, self.uses + 1)
+            
+    def _decrement_uses(self):
+        if self.is_loaded:
+            f = inspect.getattr_static(self.__class__, "uses")
+            f.set_value(self, self.uses - 1)
     
 class Checkitem(ApiObject):
     _id_fields = ("id", "checklist_id", "card_id")
@@ -142,10 +153,12 @@ class Card(ApiObject):
     @labels.add
     def labels(self, label):
         self._api.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
+        label._increment_uses()
         return label
     
     @labels.remove
     def labels(self, label):
+        label._decrement_uses()
         self._api.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
     
     @collection_api_field
@@ -201,7 +214,8 @@ class Board(ApiObject):
     
     @collection_api_field
     def labels(self, data):
-        return (Label(data=i, api=self._api) for i in self._api.do_request("boards/%s/labels" % self.id))
+        # hm, there is no pagination
+        return (Label(data=i, api=self._api) for i in self._api.do_request("boards/%s/labels" % self.id, parameters={"limit":1000}))
     
     @labels.add
     def labels(self, name, color = None):
