@@ -8,6 +8,7 @@ import logging
 import inspect
 import functools
 import datetime
+from collections import OrderedDict
 
 # todo: cache + filling cached objects with new data if already fetched 
 
@@ -107,7 +108,7 @@ class simple_api_field(api_field):
         if isinstance(value, datetime.datetime):
             value = value.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
         
-        obj._api.do_request("%s/%s" % (obj._get_data_url(), self.data_name), parameters={"value": value}, method="put")
+        obj._api.do_request("%s/%s" % (obj.get_object_url(), self.data_name), parameters={"value": value}, method="put")
 
 class ApiObject(Logger):
     
@@ -115,6 +116,7 @@ class ApiObject(Logger):
     _api_data = None
     _api_registered_fields = None
     _api_data_version = None
+    _api_object_url = None
     
     @classmethod
     def get_registered_fields(cls):
@@ -161,18 +163,18 @@ class ApiObject(Logger):
         self._api_data = data
         self._api_data_version = datetime.datetime.utcnow()
     
-    def _get_data_url(self):
-        raise NotImplementedError()
+    def get_object_url(self):
+        return self._api_object_url.format(**self.get_ids())
     
     def get_api_data(self):
         if self._api_data is None:
-            data = self._api.do_request(self._get_data_url())
+            data = self._api.do_request(self.get_object_url())
             self.set_data(data)
         
         return self._api_data
     
-    def get_uid(self):
-        return "".join(repr(getattr(self, name)) for name in self._api_id_fields)
+    def get_ids(self):
+        return OrderedDict((name, getattr(self, name)) for name in self._api_id_fields)
 
 def get_uid(cls, data=None, kwargs={}):
     ret = {}

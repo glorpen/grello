@@ -13,9 +13,7 @@ import datetime
 class Attachment(ApiObject):
     
     _api_id_fields = ("id", "card_id")
-    
-    def _get_data_url(self):
-        return "cards/%s/attachments/%s" % (self.card_id, self.id)
+    _api_object_url = "cards/{card_id}/attachments/{id}"
     
     def __repr__(self):
         return "<Attachment %r in card %r>" % (self.id, self.card_id)
@@ -34,8 +32,7 @@ class Label(ApiObject):
     
     NO_COLOR = None
     
-    def _get_data_url(self):
-        return "labels/%s" % (self.id,)
+    _api_object_url = "labels/{id}"
     
     name = simple_api_field("name")
     color = simple_api_field("color")
@@ -60,8 +57,7 @@ class Checkitem(ApiObject):
     COMPLETE = 'complete'
     INCOMPLETE = 'incomplete'
     
-    def _get_data_url(self):
-        return "cards/%s/checklist/%s/checkItem/%s" % (self.card_id, self.checklist_id, self.id)
+    _api_object_url = "cards/{card_id}/checklist/{checklist_id}/checkItem/{id}"
     
     def __repr__(self):
         return "<Checkitem %r from checklist %r>" % (self.id, self.checklist_id)
@@ -77,8 +73,7 @@ class Checkitem(ApiObject):
         return data["state"] == self.COMPLETE
 
 class Checklist(ApiObject):
-    def _get_data_url(self):
-        return "checklists/%s" % self.id
+    _api_object_url = "checklists/{id}"
     
     def __repr__(self):
         return "<Checklist %r>" % (self.id,)
@@ -108,8 +103,7 @@ class Checklist(ApiObject):
         return self._api.get_object(Checkitem, data=ret, checklist_id=self.id, card_id=self.card.id)
 
 class Card(ApiObject):
-    def _get_data_url(self):
-        return "cards/%s" % self.id
+    _api_object_url = "cards/{id}"
     
     def __repr__(self):
         return "<Card %r>" % self.id
@@ -199,21 +193,19 @@ class Card(ApiObject):
     
 class List(ApiObject):
     
+    _api_object_url = "lists/{id}"
+    
     name = simple_api_field("name")
     
     def __repr__(self):
         return "<List %r>" % self.id
-    
-    def _get_data_url(self):
-        return "lists/%s" % self.id
     
     @collection_api_field(always_fresh=True)
     def cards(self, data):
         return (self._api.get_objects(Card, data=self._api.do_request("lists/%s/cards" % self.id)))
 
 class Board(ApiObject):
-    def _get_data_url(self):
-        return "boards/%s" % self.id
+    _api_object_url = "boards/{id}"
     
     def __repr__(self):
         return '<Board %r>' % (self.id,)

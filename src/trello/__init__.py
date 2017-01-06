@@ -100,7 +100,7 @@ class Api(Logger):
             yield self.get_object(cls, i, **kwargs)
     
     def get_object(self, cls, data=None, **kwargs):
-        uid = "".join([str(cls), repr(get_uid(cls, data, kwargs))])
+        uid = "".join([str(cls), repr(get_uid(cls, data, kwargs).items())])
         if uid in self.cache:
             if data:
                 self.cache[uid].set_data(data)
