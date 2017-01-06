@@ -1,7 +1,10 @@
-from trello.utils import Logger
+from trello.utils import Logger, get_uid
 import requests
 from requests_oauthlib.oauth1_session import OAuth1Session
 from trello.objects import Board
+
+class EventBus(Logger):
+    pass
 
 class Api(Logger):
     
@@ -14,6 +17,8 @@ class Api(Logger):
         self.token = token
         
         self.session = requests.Session()
+        self.event_bus = EventBus()
+        self.cache = {}
     
     def do_request(self, uri, parameters=None, method="get"):
         self.logger.info("Requesting %s:%s", method, uri)
@@ -89,3 +94,18 @@ class Api(Logger):
     
     def get_token(self, token_id):
         return self.do_request('tokens/%s' % token_id)
+    
+    def get_objects(self, cls, data, **kwargs):
+        for i in data:
+            yield self.get_object(cls, i, **kwargs)
+    
+    def get_object(self, cls, data=None, **kwargs):
+        uid = "".join([str(cls), repr(get_uid(cls, data, kwargs))])
+        if uid in self.cache:
+            if data:
+                self.cache[uid].set_data(data)
+        else:
+            self.cache[uid] = cls(api=self, data=data, **kwargs)
+        
+        return self.cache[uid]
+    

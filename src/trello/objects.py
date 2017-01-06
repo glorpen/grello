@@ -8,7 +8,7 @@ from trello.utils import ApiObject, api_field, simple_api_field,\
 import datetime
 
 # TODO: usunięcie label z board powinno automatycznie usunąć label z załadowanych kart
-# TODO: collection powinno sie przełðaować jeśli data["collectionIds"] są inne, jeśli zaciągane z urla to nie
+# TODO: dodanie label do card powinno dodać instancje do board
 
 class Attachment(ApiObject):
     
@@ -46,6 +46,8 @@ class Label(ApiObject):
     
     def _increment_uses(self):
         if self.is_loaded:
+            # czy jest możliwa sytuacja w której is_loaded = True oraz uses.should_be_reloaded = True
+            # wtedy self.uses zaktualizuje wartość a następnie + 1
             self.get_api_field_data("uses").value = self.uses + 1
             
     def _decrement_uses(self):
@@ -85,11 +87,11 @@ class Checklist(ApiObject):
     
     @api_field
     def card(self, data):
-        return Card(id=data["idCard"], api=self._api)
+        return self._api.get_object(Card, id=data["idCard"])
     
     @collection_api_field
     def items(self, data):
-        return (Checkitem(data=i, api=self._api, checklist_id=self.id, card_id=self.card.id) for i in data["checkItems"])
+        return (self._api.get_objects(Checkitem, data=data["checkItems"], checklist_id=self.id, card_id=self.card.id))
     
     @items.remove
     def items(self, item):
@@ -103,7 +105,7 @@ class Checklist(ApiObject):
             "checked": "true" if checked else "false"
         })
         
-        return Checkitem(data=ret, checklist_id=self.id, card_id=self.card.id, api=self._api)
+        return self._api.get_object(Checkitem, data=ret, checklist_id=self.id, card_id=self.card.id)
 
 class Card(ApiObject):
     def _get_data_url(self):
@@ -125,9 +127,9 @@ class Card(ApiObject):
         if data['due']:
             return datetime.datetime.strptime(data['due'], '%Y-%m-%dT%H:%M:%S.%fZ')
     
-    @collection_api_field
+    @collection_api_field(always_fresh=True)
     def attachments(self, data):
-        return (Attachment(card_id = self.id, data=i, api=self._api) for i in self._api.do_request("cards/%s/attachments" % self.id))
+        return (self._api.get_objects(Attachment, card_id = self.id, data=self._api.do_request("cards/%s/attachments" % self.id)))
     
     @attachments.add
     def attachments(self, file=None, name=None, url=None, mime_type=None):
@@ -138,26 +140,38 @@ class Card(ApiObject):
             "mimeType": mime_type
         })
         
-        return Attachment(card_id=self.id, data=ret, api=self._api)
+        return self._api.get_object(Attachment, card_id=self.id, data=ret)
     
     @collection_api_field
     def labels(self, data):
-        return (Label(data=i, api=self._api) for i in data["labels"])
+        return (self._api.get_objects(Label, data=data["labels"]))
     
     @labels.add
-    def labels(self, label):
-        self._api.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
-        label._increment_uses()
+    def labels(self, label=None, name=None, color=None):
+        if label:
+            self._api.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
+            label._increment_uses()
+            
+            #self._api.event_bus.trigger(label, "assigned")
+        else:
+            data = self._api.do_request("cards/%s/labels" % self.id, method="post", parameters={"name":name,"color":color})
+            label = self._api.get_object(Label, data=data)
+            
+            #self._api.event_bus.trigger(label, "created")
+            #self._api.event_bus.trigger(label, "assigned")
+            
         return label
     
     @labels.remove
     def labels(self, label):
         label._decrement_uses()
         self._api.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
+        
+        #self._api.event_bus.trigger(label, "unassigned")
     
     @collection_api_field
     def checklists(self, data):
-        return (Checklist(id=i, api=self._api) for i in data["idChecklists"])
+        return (self._api.get_object(Checklist, id=i) for i in data["idChecklists"])
     
     @checklists.add
     def checklists(self, name, pos=None):
@@ -165,7 +179,7 @@ class Card(ApiObject):
             "name": name,
             "pos": pos
         })
-        return Checklist(data=data, api=self._api, card_id=self.id)
+        return self._api.get_object(Checklist, data=data, card_id=self.id)
     
     @checklists.remove
     def checklists(self, checklist):
@@ -175,7 +189,7 @@ class Card(ApiObject):
     def cover(self, data):
         cover_id = data["idAttachmentCover"]
         if cover_id:
-            return Attachment(card_id = self.id, id = cover_id, api=self._api)
+            return self._api.get_object(Attachment, card_id = self.id, id = cover_id)
     
     @cover.setter
     def cover(self, attachment):
@@ -193,9 +207,9 @@ class List(ApiObject):
     def _get_data_url(self):
         return "lists/%s" % self.id
     
-    @collection_api_field
+    @collection_api_field(always_fresh=True)
     def cards(self, data):
-        return (Card(data=i, api=self._api) for i in self._api.do_request("lists/%s/cards" % self.id))
+        return (self._api.get_objects(Card, data=self._api.do_request("lists/%s/cards" % self.id)))
 
 class Board(ApiObject):
     def _get_data_url(self):
@@ -204,13 +218,13 @@ class Board(ApiObject):
     def __repr__(self):
         return '<Board %r>' % (self.id,)
     
-    @collection_api_field
+    @collection_api_field(always_fresh=True)
     def lists(self, data):
-        return (List(data=i, api=self._api) for i in self._api.do_request("boards/%s/lists" % self.id))
+        return self._api.get_objects(List, data=self._api.do_request("boards/%s/lists" % self.id))
     
-    @collection_api_field
+    @collection_api_field(always_fresh=True)
     def labels(self, data):
-        items = tuple(Label(data=i, api=self._api) for i in self._api.do_request("boards/%s/labels" % self.id, parameters={"limit":1000}))
+        items = tuple(self._api.get_objects(Label, data=self._api.do_request("boards/%s/labels" % self.id, parameters={"limit":1000})))
         # hm, there is no pagination
         if len(items) == 1000:
             self.logger.error("Label count for %r exceeds 1000 limit, adding new labels will create duplicates", self)
@@ -218,9 +232,8 @@ class Board(ApiObject):
     
     @labels.add
     def labels(self, name, color = None):
-        return Label(
-            data=self._api.do_request("boards/%s/labels" % self.id, method='post', parameters={"name":name,"color":color}),
-            api=self._api
+        return self._api.get_object(Label,
+            data=self._api.do_request("boards/%s/labels" % self.id, method='post', parameters={"name":name,"color":color})
         )
     
     @labels.remove

@@ -74,13 +74,13 @@ class api_field(object):
         self._setter(obj, value)
         self.get_field_data(obj).value = value
     
-    def should_be_reloaded(self, field_data, obj):
-        return field_data.data_version < obj._api_data_version
+    def is_fresh(self, field_data, obj):
+        return field_data.data_version >= obj._api_data_version
     
     def __get__(self, obj, cls=None):
         field_data = self.get_field_data(obj)
         
-        if not field_data.loaded or self.should_be_reloaded(field_data, obj):
+        if not field_data.loaded or not self.is_fresh(field_data, obj):
             self.load(obj)
         
         return self.get_field_data(obj).value
@@ -161,16 +161,6 @@ class ApiObject(Logger):
         self._api_data = data
         self._api_data_version = datetime.datetime.utcnow()
     
-    @classmethod
-    def get_id_fields(cls, data={}, kwargs={}):
-        ret = {}
-        for n in cls._api_id_fields:
-            if n in data or n in kwargs:
-                ret[n] = data.get(n, kwargs.get(n))
-            else:
-                raise Exception("Not all ids found")
-        return ret
-    
     def _get_data_url(self):
         raise NotImplementedError()
     
@@ -184,9 +174,10 @@ class ApiObject(Logger):
     def get_uid(self):
         return "".join(repr(getattr(self, name)) for name in self._api_id_fields)
 
-def get_id(cls, data={}, kwargs={}):
+def get_uid(cls, data=None, kwargs={}):
     ret = {}
-    for n in cls.id_fields:
+    data = data or {}
+    for n in cls._api_id_fields:
         if n in data or n in kwargs:
             ret[n] = data.get(n, kwargs.get(n))
         else:
@@ -228,6 +219,14 @@ class collection_api_field(api_field):
     f_add = None
     f_remove = None
     
+    def __init__(self, loader=None, always_fresh=False):
+        super(collection_api_field, self).__init__(loader=loader)
+        self.always_fresh = always_fresh
+    
+    def __call__(self, f):
+        self.loader(f)
+        return self
+    
     def _setter(self, obj, value):
         raise AttributeError("Collection is not writable")
     
@@ -235,13 +234,12 @@ class collection_api_field(api_field):
         self.f_add = f
         return self
     
+    def is_fresh(self, field_data, obj):
+        return self.always_fresh or super(collection_api_field, self).is_fresh(field_data, obj)
+    
     def remove(self, f):
         self.f_remove = f
         return self
-    
-    def should_be_reloaded(self, field_data, obj):
-        #todo should depend on loader usage of api_data
-        return False
     
     def normalize_loaded_value(self, obj, value):
         coll = ApiCollection(value)
