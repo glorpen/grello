@@ -214,8 +214,11 @@ class Board(ApiObject):
     
     @collection_api_field
     def labels(self, data):
+        items = tuple(Label(data=i, api=self._api) for i in self._api.do_request("boards/%s/labels" % self.id, parameters={"limit":1000}))
         # hm, there is no pagination
-        return (Label(data=i, api=self._api) for i in self._api.do_request("boards/%s/labels" % self.id, parameters={"limit":1000}))
+        if len(items) == 1000:
+            self.logger.error("Label count for %r exceeds 1000 limit, adding new labels will create duplicates", self)
+        return items
     
     @labels.add
     def labels(self, name, color = None):
