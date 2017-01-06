@@ -1,9 +1,9 @@
-from trello.utils import _Logger
+from trello.utils import Logger
 import requests
 from requests_oauthlib.oauth1_session import OAuth1Session
 from trello.objects import Board
 
-class Api(_Logger):
+class Api(Logger):
     
     api_host = 'api.trello.com'
     api_version = 1

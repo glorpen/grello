@@ -11,20 +11,27 @@ import datetime
 
 # todo: cache + filling cached objects with new data if already fetched 
 
-class _Logger(object):
+class Logger(object):
     def __init__(self):
-        super(_Logger, self).__init__()
+        super(Logger, self).__init__()
         self.logger = logging.getLogger(self.__class__.__name__)
+
+class FieldData(object):
+    loaded = False
+    value = None
+    data_version = None
 
 class api_field(object):
     
     _setter = None
+    _loader = None
     
-    def __init__(self, loader):
+    def __init__(self, loader=None):
         super(api_field, self).__init__()
-        self._loader = loader
+        if loader is not None:
+            self.loader(loader)
     
-    def get_field_data(self, obj):
+    def get_field_data(self, obj) -> FieldData:
         name = "__api_field"
         try:
             ret = getattr(obj, name)
@@ -35,9 +42,7 @@ class api_field(object):
         k = hash(self)
         
         if k not in ret:
-            ret[k] = {
-                "listeners": []
-            }
+            ret[k] = FieldData()
         
         return ret[k]
     
@@ -45,68 +50,52 @@ class api_field(object):
         self._setter = f
         return self
     
-    def get_value(self, obj):
-        return self.get_field_data(obj)["value"]
+    def loader(self, f):
+        self._loader = f
+        return self
     
-    def set_value(self, obj, value):
-        self.get_field_data(obj)["value"] = value
-    
-    def set_data(self, obj, data):
-        self.get_field_data(obj)["data"] = data
+    def normalize_loaded_value(self, obj, v):
+        return v
     
     def load(self, obj):
         field_data = self.get_field_data(obj)
         
-        if "loaded" in field_data:
-            raise Exception("Already loaded")
+        value = self._loader(obj, obj.get_api_data())
+        value = self.normalize_loaded_value(obj ,value)
         
-        for l in field_data.get("listeners"):
-            # should set "data"
-            l()
-        
-        data = field_data["data"]
-        value = self._loader(obj, data)
-        self.set_value(obj, value)
-        
-        field_data["loaded"] = True
-        field_data.pop("data", None)
-    
-    def add_before_load_listener(self, obj, cb):
-        field_data = self.get_field_data(obj)
-        field_data["listeners"].append(cb)
+        field_data.value = value
+        field_data.data_version = obj._api_data_version
+        field_data.loaded = True
     
     def __set__(self, obj, value):
         if value == self.__get__(obj):
             return
         
         self._setter(obj, value)
-        self.set_value(obj, value)
+        self.get_field_data(obj).value = value
+    
+    def should_be_reloaded(self, field_data, obj):
+        return field_data.data_version < obj._api_data_version
     
     def __get__(self, obj, cls=None):
         field_data = self.get_field_data(obj)
         
-        is_loaded = "loaded" in field_data
-        
-        if not is_loaded:
+        if not field_data.loaded or self.should_be_reloaded(field_data, obj):
             self.load(obj)
         
-        return self.get_value(obj)
+        return self.get_field_data(obj).value
 
 class simple_api_field(api_field):
     
     writable = True
     
     def __init__(self, data_name, writable=True):
-        super(simple_api_field, self).__init__(self.simple_loader)
+        super(simple_api_field, self).__init__(loader=self.simple_loader)
         self.data_name = data_name
         self.writable = writable
     
     def simple_loader(self, obj, data):
         return data[self.data_name]
-    
-    def loader(self, f):
-        self._loader = f
-        return self
     
     def _setter(self, obj, value):
         if not self.writable:
@@ -120,10 +109,31 @@ class simple_api_field(api_field):
         
         obj._api.do_request("%s/%s" % (obj._get_data_url(), self.data_name), parameters={"value": value}, method="put")
 
-class ApiObject(_Logger):
+class ApiObject(Logger):
     
-    is_loaded = False
-    _id_fields = ("id",)
+    _api_id_fields = ("id",)
+    _api_data = None
+    _api_registered_fields = None
+    _api_data_version = None
+    
+    @classmethod
+    def get_registered_fields(cls):
+        if cls._api_registered_fields is None:
+            fields = {}
+            for c in reversed(inspect.getmro(cls)):
+                if hasattr(c, "__dict__"):
+                    for k,v in c.__dict__.items():
+                        if isinstance(v, api_field):
+                            fields[k] = v
+            cls._api_registered_fields = fields
+        return cls._api_registered_fields
+    
+    def get_api_field_data(self, name):
+        return self.get_registered_fields()[name].get_field_data(self)
+    
+    @property
+    def is_loaded(self):
+        return self._api_data is not None
     
     def __init__(self, api, **kwargs):
         super(ApiObject, self).__init__()
@@ -132,42 +142,58 @@ class ApiObject(_Logger):
         
         data = kwargs.pop("data", None)
         
+        self.set_ids(**kwargs)
+        
         if data is not None:
-            self._load_ids(**dict((k, data.get(k, kwargs.get(k))) for k in self._id_fields if k in data or k in kwargs))
-            self._load_data(data)
-        else:
-            self._load_ids(**kwargs)
-            
-            for _name, obj in inspect.getmembers(self.__class__, lambda x: isinstance(x, (api_field,))):
-                obj.add_before_load_listener(self, self._assure_loaded)
+            self.set_data(data)
+        
+        #todo: validate id completion
     
-    def _load_ids(self, **kwargs):
-        for name in self._id_fields:
-            if name not in kwargs:
-                raise Exception("Not all ids given")
+    def set_ids(self, **kwargs):
+        for name, value in kwargs.items():
+            if name not in self._api_id_fields:
+                raise Exception("%r is not a id field, available names: %r" % (name, self.id_fields))
             else:
-                setattr(self, name, kwargs.get(name))
-        
-    def _load_data(self, data):
-        for _name, obj in inspect.getmembers(self.__class__, lambda x: isinstance(x, (api_field,))):
-            obj.set_data(self, data)
-        
-        self._on_data_load(data)
-        
-        self.is_loaded = True
+                setattr(self, name, value)
+    
+    def set_data(self, data):
+        self.set_ids(id=data["id"])
+        self._api_data = data
+        self._api_data_version = datetime.datetime.utcnow()
+    
+    @classmethod
+    def get_id_fields(cls, data={}, kwargs={}):
+        ret = {}
+        for n in cls._api_id_fields:
+            if n in data or n in kwargs:
+                ret[n] = data.get(n, kwargs.get(n))
+            else:
+                raise Exception("Not all ids found")
+        return ret
     
     def _get_data_url(self):
         raise NotImplementedError()
     
-    def _on_data_load(self, data):
-        pass
-    
-    def _assure_loaded(self):
-        if self.is_loaded == False:
+    def get_api_data(self):
+        if self._api_data is None:
             data = self._api.do_request(self._get_data_url())
-            self._load_data(data)
+            self.set_data(data)
+        
+        return self._api_data
+    
+    def get_uid(self):
+        return "".join(repr(getattr(self, name)) for name in self._api_id_fields)
 
-class ApiCollection(_Logger):
+def get_id(cls, data={}, kwargs={}):
+    ret = {}
+    for n in cls.id_fields:
+        if n in data or n in kwargs:
+            ret[n] = data.get(n, kwargs.get(n))
+        else:
+            raise Exception("Not all ids found")
+    return ret
+
+class ApiCollection(Logger):
     
     _api_add = None
     _api_remove = None
@@ -213,7 +239,11 @@ class collection_api_field(api_field):
         self.f_remove = f
         return self
     
-    def set_value(self, obj, value):
+    def should_be_reloaded(self, field_data, obj):
+        #todo should depend on loader usage of api_data
+        return False
+    
+    def normalize_loaded_value(self, obj, value):
         coll = ApiCollection(value)
         
         if self.f_add:
@@ -221,4 +251,4 @@ class collection_api_field(api_field):
         if self.f_remove:
             coll._api_remove = functools.partial(self.f_remove, obj)
         
-        super(collection_api_field, self).set_value(obj, coll)
+        return coll

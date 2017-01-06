@@ -6,11 +6,13 @@ Created on 30.12.2016
 from trello.utils import ApiObject, api_field, simple_api_field,\
     collection_api_field
 import datetime
-import inspect
+
+# TODO: usunięcie label z board powinno automatycznie usunąć label z załadowanych kart
+# TODO: collection powinno sie przełðaować jeśli data["collectionIds"] są inne, jeśli zaciągane z urla to nie
 
 class Attachment(ApiObject):
     
-    _id_fields = ("id", "card_id")
+    _api_id_fields = ("id", "card_id")
     
     def _get_data_url(self):
         return "cards/%s/attachments/%s" % (self.card_id, self.id)
@@ -44,16 +46,14 @@ class Label(ApiObject):
     
     def _increment_uses(self):
         if self.is_loaded:
-            f = inspect.getattr_static(self.__class__, "uses")
-            f.set_value(self, self.uses + 1)
+            self.get_api_field_data("uses").value = self.uses + 1
             
     def _decrement_uses(self):
         if self.is_loaded:
-            f = inspect.getattr_static(self.__class__, "uses")
-            f.set_value(self, self.uses - 1)
+            self.get_api_field_data("uses").value = self.uses - 1
     
 class Checkitem(ApiObject):
-    _id_fields = ("id", "checklist_id", "card_id")
+    _api_id_fields = ("id", "checklist_id", "card_id")
     
     COMPLETE = 'complete'
     INCOMPLETE = 'incomplete'
@@ -127,13 +127,7 @@ class Card(ApiObject):
     
     @collection_api_field
     def attachments(self, data):
-        a = tuple(Attachment(card_id = self.id, data=i, api=self._api) for i in self._api.do_request("cards/%s/attachments" % self.id))
-        
-        cover_id = self.cover.id if self.cover else None
-        if cover_id:
-            return filter(lambda x: x.id != cover_id, a)
-        else:
-            return a
+        return (Attachment(card_id = self.id, data=i, api=self._api) for i in self._api.do_request("cards/%s/attachments" % self.id))
     
     @attachments.add
     def attachments(self, file=None, name=None, url=None, mime_type=None):
@@ -199,8 +193,9 @@ class List(ApiObject):
     def _get_data_url(self):
         return "lists/%s" % self.id
     
-    def get_cards(self):
-        return tuple(Card(data=i, api=self._api) for i in self._api.do_request("lists/%s/cards" % self.id))
+    @collection_api_field
+    def cards(self, data):
+        return (Card(data=i, api=self._api) for i in self._api.do_request("lists/%s/cards" % self.id))
 
 class Board(ApiObject):
     def _get_data_url(self):
@@ -209,8 +204,9 @@ class Board(ApiObject):
     def __repr__(self):
         return '<Board %r>' % (self.id,)
     
-    def get_lists(self):
-        return tuple(List(data=i, api=self._api) for i in self._api.do_request("boards/%s/lists" % self.id))
+    @collection_api_field
+    def lists(self, data):
+        return (List(data=i, api=self._api) for i in self._api.do_request("boards/%s/lists" % self.id))
     
     @collection_api_field
     def labels(self, data):
