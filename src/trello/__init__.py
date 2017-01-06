@@ -4,8 +4,38 @@ from requests_oauthlib.oauth1_session import OAuth1Session
 from trello.objects import Board
 
 class EventBus(Logger):
-    pass
-
+    
+    def __init__(self):
+        super(EventBus, self).__init__()
+        self.listeners = {}
+    
+    def get_event_listeners(self, event):
+        if event not in self.listeners:
+            self.listeners[event] = []
+        
+        return self.listeners[event]
+    
+    def subscribe(self, api_object):
+        for k, event in api_object.get_api_listeners():
+            f = getattr(api_object, k)
+            self.logger.debug("Subscribing %r to %r", f, event)
+            self.add_listener(event, f)
+    
+    def unsubscribe(self, api_object):
+        for k, event in api_object.get_api_listeners():
+            self.remove_listener(event, getattr(api_object, k))
+    
+    def add_listener(self, event, f):
+        self.get_event_listeners(event).append(f)
+    
+    def remove_listener(self, event, f):
+        self.get_event_listeners(event).remove(f)
+    
+    def trigger(self, event, *args, **kwargs):
+        self.logger.debug("Triggering %r", event)
+        for f in self.get_event_listeners(event):
+            f(*args, **kwargs)
+        
 class Api(Logger):
     
     api_host = 'api.trello.com'

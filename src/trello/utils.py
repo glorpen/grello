@@ -110,6 +110,15 @@ class simple_api_field(api_field):
         
         obj._api.do_request("%s/%s" % (obj.get_object_url(), self.data_name), parameters={"value": value}, method="put")
 
+class api_listener(object):
+    def __init__(self, event):
+        super(api_listener, self).__init__()
+        self.event = event
+    
+    def __call__(self, f):
+        f._api_listener_event = self.event
+        return f
+
 class ApiObject(Logger):
     
     _api_id_fields = ("id",)
@@ -117,18 +126,33 @@ class ApiObject(Logger):
     _api_registered_fields = None
     _api_data_version = None
     _api_object_url = None
+    _api_listeners = None
     
     @classmethod
     def get_registered_fields(cls):
         if cls._api_registered_fields is None:
-            fields = {}
-            for c in reversed(inspect.getmro(cls)):
-                if hasattr(c, "__dict__"):
-                    for k,v in c.__dict__.items():
-                        if isinstance(v, api_field):
-                            fields[k] = v
-            cls._api_registered_fields = fields
+            cls._find_tagged_properties()
         return cls._api_registered_fields
+    
+    @classmethod
+    def _find_tagged_properties(cls):
+        fields = {}
+        listeners = []
+        for c in reversed(inspect.getmro(cls)):
+            if hasattr(c, "__dict__"):
+                for k,v in c.__dict__.items():
+                    if isinstance(v, api_field):
+                        fields[k] = v
+                    if hasattr(v, "_api_listener_event"):
+                        listeners.append((k, getattr(v, "_api_listener_event")))
+        cls._api_registered_fields = fields
+        cls._api_listeners = tuple(listeners)
+    
+    @classmethod
+    def get_api_listeners(cls):
+        if cls._api_listeners is None:
+            cls._find_tagged_properties()
+        return cls._api_listeners
     
     def get_api_field_data(self, name):
         return self.get_registered_fields()[name].get_field_data(self)
@@ -150,6 +174,8 @@ class ApiObject(Logger):
             self.set_data(data)
         
         #todo: validate id completion
+        
+        self._api.event_bus.subscribe(self)
     
     def set_ids(self, **kwargs):
         for name, value in kwargs.items():

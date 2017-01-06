@@ -4,11 +4,11 @@ Created on 30.12.2016
 @author: glorpen
 '''
 from trello.utils import ApiObject, api_field, simple_api_field,\
-    collection_api_field
+    collection_api_field, api_listener
 import datetime
 
-# TODO: usunięcie label z board powinno automatycznie usunąć label z załadowanych kart
-# TODO: dodanie label do card powinno dodać instancje do board
+# TOOD: remove label from event_bus when label is removed
+
 
 class Attachment(ApiObject):
     
@@ -41,15 +41,22 @@ class Label(ApiObject):
     def __repr__(self):
         return "<Label %r:%r>" % (self.name, self.color)
     
-    def _increment_uses(self):
-        if self.is_loaded:
-            # czy jest możliwa sytuacja w której is_loaded = True oraz uses.should_be_reloaded = True
-            # wtedy self.uses zaktualizuje wartość a następnie + 1
-            self.get_api_field_data("uses").value = self.uses + 1
-            
-    def _decrement_uses(self):
-        if self.is_loaded:
+    @api_listener("label.assigned")
+    def on_assigned(self, label, uses = None):
+        if label is self and self.is_loaded:
+            self.get_api_field_data("uses").value = (self.uses + 1) if uses is None else uses
+            self.logger.debug("Label uses counter incremented")
+    
+    @api_listener("label.unassigned")
+    def on_unassigned(self, label):
+        if label is self and self.is_loaded:
             self.get_api_field_data("uses").value = self.uses - 1
+            self.logger.debug("Label uses counter decremented")
+    
+    @api_listener("label.removed")
+    def on_removed(self, label):
+        if label is self:
+            self._api.event_bus.unsubscribe(self)
     
 class Checkitem(ApiObject):
     _api_id_fields = ("id", "checklist_id", "card_id")
@@ -142,26 +149,33 @@ class Card(ApiObject):
     
     @labels.add
     def labels(self, label=None, name=None, color=None):
+        uses = None
+        
         if label:
             self._api.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
-            label._increment_uses()
-            
-            #self._api.event_bus.trigger(label, "assigned")
         else:
             data = self._api.do_request("cards/%s/labels" % self.id, method="post", parameters={"name":name,"color":color})
             label = self._api.get_object(Label, data=data)
             
-            #self._api.event_bus.trigger(label, "created")
-            #self._api.event_bus.trigger(label, "assigned")
+            self._api.event_bus.trigger("label.created", label)
+            uses = label.uses
             
+        self._api.event_bus.trigger("label.assigned", label, uses)
+        
         return label
     
     @labels.remove
     def labels(self, label):
-        label._decrement_uses()
         self._api.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
-        
-        #self._api.event_bus.trigger(label, "unassigned")
+        self._api.event_bus.trigger("label.unassigned", label)
+    
+    @api_listener("label.removed")
+    def on_label_removed(self, label):
+        if self.get_api_field_data("labels").loaded:
+            try:
+                self.labels.remove(label)
+            except ValueError:
+                pass
     
     @collection_api_field
     def checklists(self, data):
@@ -231,3 +245,10 @@ class Board(ApiObject):
     @labels.remove
     def labels(self, label):
         self._api.do_request("labels/%s" % label.id, method='delete')
+        self._api.event_bus.trigger("label.removed", label)
+    
+    @api_listener("label.created")
+    def on_label_created(self, label):
+        if self.get_api_field_data("labels").loaded:
+            if label not in self.labels.items:
+                self.labels.items.append(label)
