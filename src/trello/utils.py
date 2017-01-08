@@ -12,6 +12,15 @@ from collections import OrderedDict
 
 # todo: cache + filling cached objects with new data if already fetched 
 
+def python_to_trello(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    
+    if isinstance(value, datetime.datetime):
+        return value.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    
+    return value
+
 class Logger(object):
     def __init__(self):
         super(Logger, self).__init__()
@@ -102,11 +111,7 @@ class simple_api_field(api_field):
         if not self.writable:
             raise AttributeError("Trello field %s is not writable" % self.data_name)
         
-        if isinstance(value, bool):
-            value = "true" if value else "false"
-        
-        if isinstance(value, datetime.datetime):
-            value = value.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        value = python_to_trello(value)
         
         obj._api.do_request("%s/%s" % (obj.get_object_url(), self.data_name), parameters={"value": value}, method="put")
 
@@ -126,7 +131,6 @@ class ApiObject(Logger):
     _api_registered_fields = None
     _api_data_version = None
     _api_object_url = None
-    _api_listeners = None
     
     @classmethod
     def get_registered_fields(cls):
@@ -137,22 +141,12 @@ class ApiObject(Logger):
     @classmethod
     def _find_tagged_properties(cls):
         fields = {}
-        listeners = []
         for c in reversed(inspect.getmro(cls)):
             if hasattr(c, "__dict__"):
                 for k,v in c.__dict__.items():
                     if isinstance(v, api_field):
                         fields[k] = v
-                    if hasattr(v, "_api_listener_event"):
-                        listeners.append((k, getattr(v, "_api_listener_event")))
         cls._api_registered_fields = fields
-        cls._api_listeners = tuple(listeners)
-    
-    @classmethod
-    def get_api_listeners(cls):
-        if cls._api_listeners is None:
-            cls._find_tagged_properties()
-        return cls._api_listeners
     
     def get_api_field_data(self, name):
         return self.get_registered_fields()[name].get_field_data(self)
@@ -174,8 +168,6 @@ class ApiObject(Logger):
             self.set_data(data)
         
         #todo: validate id completion
-        
-        self._api.event_bus.subscribe(self)
     
     def set_ids(self, **kwargs):
         for name, value in kwargs.items():

@@ -2,7 +2,10 @@ from trello.utils import Logger, get_uid
 import requests
 from requests_oauthlib.oauth1_session import OAuth1Session
 from trello.objects import Board
+from trello.factory import Factory
+from trello.registry import api as api_registry
 
+"""
 class EventBus(Logger):
     
     def __init__(self):
@@ -11,7 +14,7 @@ class EventBus(Logger):
     
     def get_event_listeners(self, event):
         if event not in self.listeners:
-            self.listeners[event] = []
+            self.listeners[event] = {}
         
         return self.listeners[event]
     
@@ -19,23 +22,25 @@ class EventBus(Logger):
         for k, event in api_object.get_api_listeners():
             f = getattr(api_object, k)
             self.logger.debug("Subscribing %r to %r", f, event)
-            self.add_listener(event, f)
+            self.add_listener(event, f, target=api_object)
     
     def unsubscribe(self, api_object):
         for k, event in api_object.get_api_listeners():
             self.remove_listener(event, getattr(api_object, k))
     
-    def add_listener(self, event, f):
-        self.get_event_listeners(event).append(f)
+    def add_listener(self, event, f, target=None):
+        self.get_event_listeners(event)[f]={"target": target, "f": f}
     
     def remove_listener(self, event, f):
-        self.get_event_listeners(event).remove(f)
+        self.get_event_listeners(event).pop(f, None)
     
-    def trigger(self, event, *args, **kwargs):
+    def trigger(self, event, source, *args, **kwargs):
         self.logger.debug("Triggering %r", event)
-        for f in self.get_event_listeners(event):
-            f(*args, **kwargs)
-        
+        for data in self.get_event_listeners(event).values():
+            if data["target"] is None or source is None or data["target"] is not source:
+                data["f"](*args, **kwargs)
+"""
+
 class Api(Logger):
     
     api_host = 'api.trello.com'
@@ -47,8 +52,7 @@ class Api(Logger):
         self.token = token
         
         self.session = requests.Session()
-        self.event_bus = EventBus()
-        self.cache = {}
+        self.cache = Factory(self)
     
     def do_request(self, uri, parameters=None, method="get"):
         self.logger.info("Requesting %s:%s", method, uri)
@@ -117,25 +121,19 @@ class Api(Logger):
 
     
     def get_boards(self):
-        return tuple(Board(id=i, api=self) for i in self.do_request("members/me")["idBoards"])
+        return tuple(self.get_object(Board, id=i) for i in self.do_request("members/me")["idBoards"])
     
     def get_board(self, board_id):
-        return Board(id=board_id, api=self)
+        return self.get_object(Board, id=board_id)
     
     def get_token(self, token_id):
         return self.do_request('tokens/%s' % token_id)
     
     def get_objects(self, cls, data, **kwargs):
-        for i in data:
-            yield self.get_object(cls, i, **kwargs)
+        return self.cache.get_multiple(cls, data, **kwargs)
     
     def get_object(self, cls, data=None, **kwargs):
-        uid = "".join([str(cls), repr(get_uid(cls, data, kwargs).items())])
-        if uid in self.cache:
-            if data:
-                self.cache[uid].set_data(data)
-        else:
-            self.cache[uid] = cls(api=self, data=data, **kwargs)
-        
-        return self.cache[uid]
+        return self.cache.get(cls, data, **kwargs)
     
+    def trigger(self, event, source, subject, *args, **kwargs):
+        api_registry.trigger(self.cache, event, source, subject, *args, **kwargs)

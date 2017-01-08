@@ -4,8 +4,9 @@ Created on 30.12.2016
 @author: glorpen
 '''
 from trello.utils import ApiObject, api_field, simple_api_field,\
-    collection_api_field, api_listener
+    collection_api_field, api_listener, python_to_trello
 import datetime
+from trello.registry import api
 
 # TOOD: remove label from event_bus when label is removed
 
@@ -42,21 +43,16 @@ class Label(ApiObject):
         return "<Label %r:%r>" % (self.name, self.color)
     
     @api_listener("label.assigned")
-    def on_assigned(self, label, uses = None):
+    def on_assigned(self, source, label, uses = None):
         if label is self and self.is_loaded:
             self.get_api_field_data("uses").value = (self.uses + 1) if uses is None else uses
             self.logger.debug("Label uses counter incremented")
     
     @api_listener("label.unassigned")
-    def on_unassigned(self, label):
+    def on_unassigned(self, source, label):
         if label is self and self.is_loaded:
             self.get_api_field_data("uses").value = self.uses - 1
             self.logger.debug("Label uses counter decremented")
-    
-    @api_listener("label.removed")
-    def on_removed(self, label):
-        if label is self:
-            self._api.event_bus.unsubscribe(self)
     
 class Checkitem(ApiObject):
     _api_id_fields = ("id", "checklist_id", "card_id")
@@ -157,23 +153,23 @@ class Card(ApiObject):
             data = self._api.do_request("cards/%s/labels" % self.id, method="post", parameters={"name":name,"color":color})
             label = self._api.get_object(Label, data=data)
             
-            self._api.event_bus.trigger("label.created", label)
+            self._api.trigger("label.created", self, label)
             uses = label.uses
             
-        self._api.event_bus.trigger("label.assigned", label, uses)
+        self._api.trigger("label.assigned", self, label, uses)
         
         return label
     
     @labels.remove
     def labels(self, label):
         self._api.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
-        self._api.event_bus.trigger("label.unassigned", label)
+        self._api.trigger("label.unassigned", self, label)
     
-    @api_listener("label.removed")
-    def on_label_removed(self, label):
+    @api.listener("label.removed")
+    def on_label_removed(self, source, subject):
         if self.get_api_field_data("labels").loaded:
             try:
-                self.labels.remove(label)
+                self.labels.remove(subject)
             except ValueError:
                 pass
     
@@ -210,6 +206,8 @@ class List(ApiObject):
     _api_object_url = "lists/{id}"
     
     name = simple_api_field("name")
+    position = simple_api_field("pos")
+    #TODO: change other list numbers?
     
     def __repr__(self):
         return "<List %r>" % self.id
@@ -217,6 +215,25 @@ class List(ApiObject):
     @collection_api_field(always_fresh=True)
     def cards(self, data):
         return (self._api.get_objects(Card, data=self._api.do_request("lists/%s/cards" % self.id)))
+    
+    @cards.add
+    def cards(self, name, description=None, members=None, due=None):
+        #TODO: name=None, card=None - when providing card, card will be moved & move event triggered
+        params = {"name": name}
+        
+        if description:
+            params["desc"] = description
+        if members:
+            params["idMembers"] = ",".join(i.id for i in members)
+        if due:
+            params["due"] = python_to_trello(due)
+        
+        return self._api.get_object(Card, data=self._api.do_request("lists/%s/cards" % self.id, method="post", parameters=params))
+    
+    @cards.remove
+    def cards(self, card):
+        #self._api.do_request("cards/%s" % card.id, method="delete")
+        self._api.do_request("cards/%s/closed" % card.id, method="put", parameters={"value":"true"})
 
 class Board(ApiObject):
     _api_object_url = "boards/{id}"
@@ -227,6 +244,16 @@ class Board(ApiObject):
     @collection_api_field(always_fresh=True)
     def lists(self, data):
         return self._api.get_objects(List, data=self._api.do_request("boards/%s/lists" % self.id))
+    
+    @lists.add
+    def lists(self, name, pos=None):
+        return self._api.get_object(List,
+            data=self._api.do_request("boards/%s/lists" % self.id, method='post', parameters={"name":name,"pos":pos})
+        )
+    
+    @lists.remove
+    def lists(self, list):
+        self._api.do_request("lists/%s/closed" % list.id, method="put", parameters={"value":'true'})
     
     @collection_api_field(always_fresh=True)
     def labels(self, data):
@@ -245,10 +272,12 @@ class Board(ApiObject):
     @labels.remove
     def labels(self, label):
         self._api.do_request("labels/%s" % label.id, method='delete')
-        self._api.event_bus.trigger("label.removed", label)
+        self._api.trigger("label.removed", self, label)
     
-    @api_listener("label.created")
-    def on_label_created(self, label):
+    @api.listener("label.created")
+    def on_label_created(self, source, label):
+        if source is self:
+            return
         if self.get_api_field_data("labels").loaded:
             if label not in self.labels.items:
                 self.labels.items.append(label)
