@@ -120,11 +120,11 @@ class simple_api_field(api_field):
         if not self.writable:
             raise AttributeError("Trello field %s is not writable" % self.data_name)
         
-        value = python_to_trello(value)
-        
         # skip request if value didn't change
         if self.__get__(obj) == value:
             return
+        
+        value = python_to_trello(value)
         
         obj._api.do_request("%s/%s" % (obj.get_object_url(), self.data_name), parameters={"value": value}, method="put")
 
@@ -177,7 +177,7 @@ class Loadable(Logger):
         return OrderedDict((name, getattr(self, name)) for name in self._api_id_fields)
     
     def load(self):
-        data = self._api.do_request(self.get_object_url(), method="get")
+        data = self._api.do_request(self.get_object_url(), {"fields": self._api_object_fields}, method="get")
         self.set_data(data)
     
     def _fetch_objects(self, url, cls, parameters=None, **kwargs):
