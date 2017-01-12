@@ -156,6 +156,7 @@ class ApiMetadata(object):
 
 class Loadable(Logger):
     _api_object_url = None
+    _api_object_fields = tuple()
     _api_id_fields = ("id",)
     
     def __init__(self, api, data=None, **kwargs):
@@ -178,6 +179,23 @@ class Loadable(Logger):
     def load(self):
         data = self._api.do_request(self.get_object_url(), method="get")
         self.set_data(data)
+    
+    def _fetch_objects(self, url, cls, parameters=None, **kwargs):
+        parameters = parameters or {}
+        parameters.update({"fields": cls._api_object_fields})
+        
+        data = self._do_request(url, method="get", parameters=parameters)
+        return self._api.get_objects(cls, data=data, **kwargs)
+    
+    def _fetch_object(self, url, cls, parameters=None, method='post', **kwargs):
+        return self._api.get_object(cls,
+            data=self._do_request(url, method=method, parameters=parameters),
+            **kwargs
+        )
+    
+    def _do_request(self, url, parameters=None, method='get'):
+        url = url.format(**self.get_ids())
+        return self._api.do_request(url, parameters, method)
     
     def set_ids(self, **kwargs):
         for name, value in kwargs.items():
@@ -205,10 +223,9 @@ class ApiCollection(object):
     _api_add = None
     _api_remove = None
     
-    def __init__(self, items_generator, always_fresh, adder=None, remover=None):
+    def __init__(self, items_generator, adder=None, remover=None):
         super(ApiCollection, self).__init__()
         self._items_generator = items_generator
-        self._always_fresh = always_fresh
         
         self._api_add = adder
         self._api_remove = remover
@@ -231,7 +248,7 @@ class ApiCollection(object):
         
         item = self._api_add(*args, **kwargs)
         
-        if self._always_fresh and not self.loaded:
+        if not self.loaded:
             return item
         
         self.items.append(item)
@@ -243,7 +260,7 @@ class ApiCollection(object):
         
         self._api_remove(item)
         
-        if self._always_fresh and not self.loaded:
+        if not self.loaded:
             return
         
         self.items.remove(item)
@@ -256,19 +273,17 @@ class ApiCollection(object):
 
 class CollectionApiData(ApiData):
     
-    def __init__(self, adder=None, remover=None, always_fresh=False, **kwargs):
+    def __init__(self, adder=None, remover=None, **kwargs):
         super(CollectionApiData, self).__init__(**kwargs)
         
         self.f_add = adder
         self.f_remove = remover
-        self.always_fresh = always_fresh
     
     def _do_load(self, data):
         loader = functools.partial(super(CollectionApiData, self)._do_load, data)
     
         return ApiCollection(
             loader,
-            self.always_fresh,
             adder=self.f_add,
             remover=self.f_remove
         )
@@ -277,11 +292,10 @@ class CollectionApiData(ApiData):
         raise AttributeError("Collection cannot be replaced")
     
     def get_value(self):
-        if self.always_fresh:
-            try:
-                return self.value
-            except AttributeError:
-                pass
+        try:
+            return self.value
+        except AttributeError:
+            pass
         
         return super(CollectionApiData, self).get_value()
 
@@ -289,16 +303,6 @@ class collection_api_field(api_field):
     
     f_add = None
     f_remove = None
-    
-    always_fresh = False
-    
-    def __init__(self, loader=None, always_fresh=False):
-        super(collection_api_field, self).__init__(loader=loader)
-        self.always_fresh = always_fresh
-    
-    def __call__(self, f):
-        self.loader(f)
-        return self
     
     def setter(self, f):
         raise AttributeError("Collection cannot be replaced")
@@ -316,7 +320,6 @@ class collection_api_field(api_field):
             loader = functools.partial(self.f_loader, obj),
             remover = functools.partial(self.f_remove, obj) if self.f_remove else None,
             adder = functools.partial(self.f_add, obj) if self.f_add else None,
-            always_fresh = self.always_fresh,
             data_requestor = obj.load
         )
     

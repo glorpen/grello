@@ -10,6 +10,9 @@ class Api(Logger):
     api_host = 'api.trello.com'
     api_version = 1
     
+    token_mode = "rwa"
+    token_expiration = "30days"
+    
     def __init__(self, app_key, token=None):
         super(Api, self).__init__()
         self.app_key = app_key
@@ -72,18 +75,24 @@ class Api(Logger):
         return session.fetch_access_token(access_token_url)["oauth_token"]
     
     def assure_token(self, app_secret):
+        
+        def get_new_token():
+            self.token = self._get_token(app_secret, self.token_mode, self.token_expiration)
+            self.on_new_token(self.token)
+        
         if self.token is None:
-            self.token = self._get_token(app_secret, "rwa")
+            get_new_token()
         else:
             try:
                 self.get_token(self.token)
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
-                    self.token = self._get_token(app_secret, "rwa")
+                    get_new_token()
                 else:
                     raise e from None
-        
-        print(self.token)
+    
+    def on_new_token(self, token):
+        print("New token: %r" % token)
     
     def get_boards(self):
         return tuple(self.get_object(Board, id=i) for i in self.do_request("members/me")["idBoards"])

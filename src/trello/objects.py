@@ -31,6 +31,7 @@ class Label(ApiObject):
     NO_COLOR = None
     
     _api_object_url = "labels/{id}"
+    _api_object_fields = ("color","name","uses")
     
     name = simple_api_field("name")
     color = simple_api_field("color")
@@ -74,6 +75,7 @@ class Checkitem(ApiObject):
 
 class Checklist(ApiObject):
     _api_object_url = "checklists/{id}"
+    _api_object_fields = ("name", "pos", "idCard")
     
     def __repr__(self):
         return "<Checklist %r>" % (self.id,)
@@ -86,7 +88,7 @@ class Checklist(ApiObject):
     
     @collection_api_field
     def items(self, data):
-        return (self._api.get_objects(Checkitem, data=data["checkItems"], checklist_id=self.id, card_id=self.card.id))
+        return self._fetch_objects("checklists/{id}/checkItems", Checkitem, checklist_id=self.id, card_id=self.card.id)
     
     @items.remove
     def items(self, item):
@@ -94,16 +96,15 @@ class Checklist(ApiObject):
     
     @items.add
     def items(self, name, pos=None, checked=False):
-        ret = self._api.do_request("checklists/%s/checkItems" % (self.id,), method="post", parameters={
+        return self._fetch_object("checklists/{id}/checkItems", Checkitem, {
             "name": name,
             "pos": pos,
             "checked": "true" if checked else "false"
-        })
-        
-        return self._api.get_object(Checkitem, data=ret, checklist_id=self.id, card_id=self.card.id)
+        }, checklist_id=self.id, card_id=self.card.id)
 
 class Card(ApiObject):
     _api_object_url = "cards/{id}"
+    _api_object_fields = ("name","desc","subscribed","closed","dueComplete","due","idAttachmentCover","idBoard")
     
     def __repr__(self):
         return "<Card %r>" % self.id
@@ -116,14 +117,18 @@ class Card(ApiObject):
     
     due = simple_api_field("due")
     
+    @api_field
+    def board(self, data):
+        return self._api.get_object(Board, id=data["idBoard"])
+    
     @due.loader
     def due(self, data):
         if data['due']:
             return datetime.datetime.strptime(data['due'], '%Y-%m-%dT%H:%M:%S.%fZ')
     
-    @collection_api_field(always_fresh=True)
+    @collection_api_field
     def attachments(self, data):
-        return (self._api.get_objects(Attachment, card_id = self.id, data=self._api.do_request("cards/%s/attachments" % self.id)))
+        return self._fetch_objects("cards/{id}/attachments", Attachment, card_id = self.id)
     
     @attachments.add
     def attachments(self, file=None, name=None, url=None, mime_type=None):
@@ -138,7 +143,8 @@ class Card(ApiObject):
     
     @collection_api_field
     def labels(self, data):
-        return self._api.get_objects(Label, data=data["labels"])
+        # TODO: should add new labels to board.labels.items, change it to set() ? 
+        return (self._api.get_object(Label, id=i) for i in self._do_request("cards/{id}/idLabels"))
     
     @labels.add
     def labels(self, label=None, name=None, color=None):
@@ -172,15 +178,14 @@ class Card(ApiObject):
     
     @collection_api_field
     def checklists(self, data):
-        return (self._api.get_object(Checklist, id=i) for i in data["idChecklists"])
+        return self._fetch_objects("cards/{id}/checklists", Checklist)
     
     @checklists.add
     def checklists(self, name, pos=None):
-        data = self._api.do_request("cards/%s/checklists" % (self.id,), method="post", parameters={
+        return self._fetch_object("cards/{id}/checklists", Checklist, {
             "name": name,
             "pos": pos
         })
-        return self._api.get_object(Checklist, data=data)
     
     @checklists.remove
     def checklists(self, checklist):
@@ -209,9 +214,9 @@ class List(ApiObject):
     def __repr__(self):
         return "<List %r>" % self.id
     
-    @collection_api_field(always_fresh=True)
+    @collection_api_field
     def cards(self, data):
-        return (self._api.get_objects(Card, data=self._api.do_request("lists/%s/cards" % self.id)))
+        return self._fetch_objects("lists/{id}/cards", Card)
     
     @cards.add
     def cards(self, name, description=None, members=None, due=None):
@@ -234,29 +239,30 @@ class List(ApiObject):
 
 class Board(ApiObject):
     _api_object_url = "boards/{id}"
+    _api_object_fields = ("name", "desc", "subscribed")
     
     name = simple_api_field("name")
+    description = simple_api_field("desc")
+    subscribed = simple_api_field("subscribed")
     
     def __repr__(self):
         return '<Board %r>' % (self.id,)
     
-    @collection_api_field(always_fresh=True)
+    @collection_api_field
     def lists(self, data):
-        return self._api.get_objects(List, data=self._api.do_request("boards/%s/lists" % self.id))
+        return self._fetch_objects("boards/{id}/lists", List)
     
     @lists.add
     def lists(self, name, pos=None):
-        return self._api.get_object(List,
-            data=self._api.do_request("boards/%s/lists" % self.id, method='post', parameters={"name":name,"pos":pos})
-        )
+        return self._fetch_object("boards/{id}/lists", List, {"name":name,"pos":pos})
     
     @lists.remove
     def lists(self, list):
         self._api.do_request("lists/%s/closed" % list.id, method="put", parameters={"value":'true'})
     
-    @collection_api_field(always_fresh=True)
+    @collection_api_field
     def labels(self, data):
-        items = tuple(self._api.get_objects(Label, data=self._api.do_request("boards/%s/labels" % self.id, parameters={"limit":1000})))
+        items = self._fetch_objects("boards/{id}/labels", Label, parameters={"limit":1000})
         # hm, there is no pagination
         if len(items) == 1000:
             self.logger.error("Label count for %r exceeds 1000 limit, adding new labels will create duplicates", self)
@@ -264,9 +270,7 @@ class Board(ApiObject):
     
     @labels.add
     def labels(self, name, color = None):
-        return self._api.get_object(Label,
-            data=self._api.do_request("boards/%s/labels" % self.id, method='post', parameters={"name":name,"color":color})
-        )
+        return self._fetch_object(Label, "boards/{id}/labels", parameters={"name":name,"color":color})
     
     @labels.remove
     def labels(self, label):
@@ -307,4 +311,17 @@ class Notification(ApiObject):
     
     def read(self):
         self.unread = False
+
+class Member(ApiObject):
+    _api_object_url = "members/{id}"
+    _api_object_fields = ("email","username","fullName","url")
+    
+    email = simple_api_field("email", writable=False)
+    username = simple_api_field("username")
+    full_name = simple_api_field("fullName")
+    url = simple_api_field("url", writable=False)
+    
+    @collection_api_field
+    def boards(self, data):
+        return self._fetch_objects("members/{id}/boards", Board)
     
