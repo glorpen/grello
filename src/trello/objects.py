@@ -104,7 +104,7 @@ class Checklist(ApiObject):
 
 class Card(ApiObject):
     _api_object_url = "cards/{id}"
-    _api_object_fields = ("name","desc","subscribed","closed","dueComplete","due","idAttachmentCover","idBoard")
+    _api_object_fields = ("name","desc","subscribed","closed","dueComplete","due","idAttachmentCover","idBoard", "idList")
     
     def __repr__(self):
         return "<Card %r>" % self.id
@@ -120,6 +120,10 @@ class Card(ApiObject):
     @api_field
     def board(self, data):
         return self._api.get_object(Board, id=data["idBoard"])
+    
+    @api_field
+    def list(self, data):
+        return self._api.get_object(List, id=data["idList"])
     
     @due.loader
     def due(self, data):
@@ -201,7 +205,11 @@ class Card(ApiObject):
     def cover(self, attachment):
         self._api.do_request("cards/%s/idAttachmentCover" % self.id, method="put", parameters={"value": attachment.id})
 
-    #todo: board getter?
+    # TODO board getter?
+    
+    @collection_api_field
+    def members(self, data):
+        return self._fetch_objects("cards/{id}/members", Member)
     
 class List(ApiObject):
     
@@ -284,7 +292,11 @@ class Board(ApiObject):
         if self.get_api_field_data("labels").loaded:
             if label not in self.labels.items:
                 self.labels.items.append(label)
-
+    
+    @collection_api_field
+    def members(self, data):
+        return self._fetch_objects("board/{id}/members", Member)
+    
 class Notification(ApiObject):
     _api_object_url = "notifications/{id}"
     
@@ -324,4 +336,12 @@ class Member(ApiObject):
     @collection_api_field
     def boards(self, data):
         return self._fetch_objects("members/{id}/boards", Board)
+    
+    @collection_api_field
+    def cards(self, data):
+        return self._fetch_objects("members/{id}/cards", Card)
+    
+    @collection_api_field
+    def notifications(self, data):
+        return self._fetch_objects("members/{id}/notifications", Notification)
     

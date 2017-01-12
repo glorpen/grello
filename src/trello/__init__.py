@@ -1,7 +1,7 @@
 from trello.utils import Logger, get_uid
 import requests
 from requests_oauthlib.oauth1_session import OAuth1Session
-from trello.objects import Board, Notification
+from trello.objects import Board, Notification, Member
 from trello.factory import Factory
 from trello.registry import events as api_registry
 
@@ -94,14 +94,11 @@ class Api(Logger):
     def on_new_token(self, token):
         print("New token: %r" % token)
     
-    def get_boards(self):
-        return tuple(self.get_object(Board, id=i) for i in self.do_request("members/me")["idBoards"])
-    
     def get_board(self, board_id):
         return self.get_object(Board, id=board_id)
     
-    def get_notifications(self):
-        return tuple(self.get_objects(Notification, data=self.do_request("members/me/notifications")))
+    def get_me(self):
+        return self.get_object(Member, data=self.do_request("members/me", parameters={"fields": Member._api_object_fields}))
     
     def get_token(self, token_id):
         return self.do_request('tokens/%s' % token_id)
