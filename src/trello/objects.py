@@ -17,6 +17,9 @@ class Attachment(ApiObject):
         return "<Attachment %r in card %r>" % (self.id, self.card_id)
     
     name = simple_api_field("name", writable=False)
+    mime_type = simple_api_field("mimeType", writable=False)
+    url = simple_api_field("url", writable=False)
+    size = simple_api_field("bytes", writable=False)
 
 class Label(ApiObject):
     
@@ -136,12 +139,16 @@ class Card(ApiObject):
     
     @attachments.add
     def attachments(self, file=None, name=None, url=None, mime_type=None):
-        ret = self._api.do_request("cards/%s/attachments" % self.id, method="post", parameters={
-            "file": file,
-            "name": name,
-            "url": url,
-            "mimeType": mime_type
-        })
+        ret = self._api.do_request(
+            "cards/%s/attachments" % self.id,
+            method="post",
+            parameters={
+                "name": name,
+                "url": url,
+                "mimeType": mime_type
+            },
+            files={"file": file}
+        )
         
         return self._api.get_object(Attachment, card_id=self.id, data=ret)
     
@@ -278,7 +285,7 @@ class Board(ApiObject):
     
     @labels.add
     def labels(self, name, color = None):
-        return self._fetch_object(Label, "boards/{id}/labels", parameters={"name":name,"color":color})
+        return self._fetch_object("boards/{id}/labels", Label, {"name":name,"color":color})
     
     @labels.remove
     def labels(self, label):

@@ -21,7 +21,7 @@ class Api(Logger):
         self.session = requests.Session()
         self.cache = Factory(self)
     
-    def do_request(self, uri, parameters=None, method="get"):
+    def do_request(self, uri, parameters=None, method="get", files = None):
         self.logger.info("Requesting %s:%s", method, uri)
         
         parameters = parameters or {}
@@ -32,7 +32,7 @@ class Api(Logger):
         max_tries = 3
         for i in range(1,max_tries+1):
             try:
-                r = getattr(self.session, method)("https://%s/%d/%s" % (self.api_host, self.api_version, uri), params=parameters)
+                r = getattr(self.session, method)("https://%s/%d/%s" % (self.api_host, self.api_version, uri), params=parameters, files=files)
                 if r.status_code == 200:
                     break
             except requests.exceptions.ConnectionError:

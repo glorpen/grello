@@ -154,6 +154,9 @@ class ApiMetadata(object):
     def __getitem__(self, name):
         return self.get_fields()[name]
 
+class InvalidIdException(Exception):
+    pass
+
 class Loadable(Logger):
     _api_object_url = None
     _api_object_fields = tuple()
@@ -168,7 +171,15 @@ class Loadable(Logger):
         if data is not None:
             self.set_data(data)
         
-        #TODO: validate id completion
+        self.validate_ids()
+    
+    def validate_ids(self):
+        for i in self._api_id_fields:
+            try:
+                if getattr(self, i) is None:
+                    raise InvalidIdException("Empty id field: %r" % i)
+            except AttributeError:
+                raise InvalidIdException("Id field %r was not set" % i)
     
     def get_object_url(self):
         return self._api_object_url.format(**self.get_ids())
@@ -200,7 +211,7 @@ class Loadable(Logger):
     def set_ids(self, **kwargs):
         for name, value in kwargs.items():
             if name not in self._api_id_fields:
-                raise Exception("%r is not a id field, available names: %r" % (name, self._api_id_fields))
+                raise InvalidIdException("%r is not a id field, available names: %r" % (name, self._api_id_fields))
             else:
                 setattr(self, name, value)
     
