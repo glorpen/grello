@@ -3,16 +3,18 @@ Created on 30.12.2016
 
 @author: glorpen
 '''
-from trello.utils import ApiObject, api_field, simple_api_field,\
-    collection_api_field, python_to_trello
+from trello.utils import python_to_trello
+from trello.fields import api_field, simple_api_field, collection_api_field
 import datetime
 from trello.registry import events
+from trello import meta
+from trello.meta import api_metadata
 
-class Attachment(ApiObject):
-    
-    _api_id_fields = ("id", "card_id")
-    _api_object_url = "cards/{card_id}/attachments/{id}"
-    
+@api_metadata(
+    url = "cards/{card_id}/attachments/{id}",
+    default_fields = ("id", "card_id")
+)
+class Attachment(object):
     def __repr__(self):
         return "<Attachment %r in card %r>" % (self.id, self.card_id)
     
@@ -21,7 +23,11 @@ class Attachment(ApiObject):
     url = simple_api_field("url", writable=False)
     size = simple_api_field("bytes", writable=False)
 
-class Label(ApiObject):
+@api_metadata(
+    url = "labels/{id}",
+    default_fields = ("color","name","uses")
+)
+class Label(object):
     
     RED = 'red'
     GREEN = 'green'
@@ -32,9 +38,6 @@ class Label(ApiObject):
     BLACK = 'black'
     
     NO_COLOR = None
-    
-    _api_object_url = "labels/{id}"
-    _api_object_fields = ("color","name","uses")
     
     name = simple_api_field("name")
     color = simple_api_field("color")
@@ -54,14 +57,15 @@ class Label(ApiObject):
         if label is self and self.api_data.loaded:
             self.api_data["uses"].value = self.uses - 1
             self.logger.debug("Label uses counter decremented")
-    
-class Checkitem(ApiObject):
-    _api_id_fields = ("id", "checklist_id", "card_id")
-    
+
+@api_metadata(
+    url = "cards/{card_id}/checklist/{checklist_id}/checkItem/{id}",
+    default_fields = ("id", "checklist_id", "card_id")
+    # TODO: camelcase?
+)
+class Checkitem(object):
     COMPLETE = 'complete'
     INCOMPLETE = 'incomplete'
-    
-    _api_object_url = "cards/{card_id}/checklist/{checklist_id}/checkItem/{id}"
     
     def __repr__(self):
         return "<Checkitem %r from checklist %r>" % (self.id, self.checklist_id)
@@ -76,9 +80,11 @@ class Checkitem(ApiObject):
     def completed(self, data):
         return data["state"] == self.COMPLETE
 
-class Checklist(ApiObject):
-    _api_object_url = "checklists/{id}"
-    _api_object_fields = ("name", "pos", "idCard")
+@api_metadata(
+    url = "checklists/{id}",
+    default_fields = ("name", "pos", "idCard")
+)
+class Checklist(object):
     
     def __repr__(self):
         return "<Checklist %r>" % (self.id,)
@@ -105,9 +111,11 @@ class Checklist(ApiObject):
             "checked": "true" if checked else "false"
         }, checklist_id=self.id, card_id=self.card.id)
 
-class Card(ApiObject):
-    _api_object_url = "cards/{id}"
-    _api_object_fields = ("name","desc","subscribed","closed","dueComplete","due","idAttachmentCover","idBoard", "idList")
+@api_metadata(
+    url = "cards/{id}",
+    default_fields = ("name","desc","subscribed","closed","dueComplete","due","idAttachmentCover","idBoard", "idList")
+)
+class Card(object):
     
     def __repr__(self):
         return "<Card %r>" % self.id
@@ -121,12 +129,12 @@ class Card(ApiObject):
     due = simple_api_field("due")
     
     @api_field
-    def board(self, data):
-        return self._api.get_object(Board, id=data["idBoard"])
+    def board(self, data, repository):
+        return repository.get_object(Board, id=data["idBoard"])
     
     @api_field
-    def list(self, data):
-        return self._api.get_object(List, id=data["idList"])
+    def list(self, data, repository):
+        return repository.get_object(List, id=data["idList"])
     
     @due.loader
     def due(self, data):
@@ -134,12 +142,12 @@ class Card(ApiObject):
             return datetime.datetime.strptime(data['due'], '%Y-%m-%dT%H:%M:%S.%fZ')
     
     @collection_api_field
-    def attachments(self, data):
-        return self._fetch_objects("cards/{id}/attachments", Attachment, card_id = self.id)
+    def attachments(self, data, api_data):
+        return api_data.fetch_objects("cards/{id}/attachments", Attachment, card_id = self.id)
     
     @attachments.add
-    def attachments(self, file=None, name=None, url=None, mime_type=None):
-        ret = self._api.do_request(
+    def attachments(self, connection, repository, file=None, name=None, url=None, mime_type=None):
+        ret = connection.do_request(
             "cards/%s/attachments" % self.id,
             method="post",
             parameters={
@@ -150,22 +158,22 @@ class Card(ApiObject):
             files={"file": file}
         )
         
-        return self._api.get_object(Attachment, card_id=self.id, data=ret)
+        return repository.get_object(Attachment, card_id=self.id, data=ret)
     
     @collection_api_field
-    def labels(self, data):
+    def labels(self, data, api_data, repository):
         # TODO: should add new labels to board.labels.items, change it to set() ? 
-        return (self._api.get_object(Label, id=i) for i in self._do_request("cards/{id}/idLabels"))
+        return (repository.get_object(Label, id=i) for i in api_data.do_request("cards/{id}/idLabels"))
     
     @labels.add
-    def labels(self, label=None, name=None, color=None):
+    def labels(self, connection, repository, label=None, name=None, color=None):
         uses = None
         
         if label:
-            self._api.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
+            connection.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
         else:
-            data = self._api.do_request("cards/%s/labels" % self.id, method="post", parameters={"name":name,"color":color})
-            label = self._api.get_object(Label, data=data)
+            data = connection.do_request("cards/%s/labels" % self.id, method="post", parameters={"name":name,"color":color})
+            label = repository.get_object(Label, data=data)
             
             self._api.trigger("label.created", self, label)
             uses = label.uses
@@ -217,10 +225,11 @@ class Card(ApiObject):
     @collection_api_field
     def members(self, data):
         return self._fetch_objects("cards/{id}/members", Member)
-    
-class List(ApiObject):
-    
-    _api_object_url = "lists/{id}"
+
+@api_metadata(
+    url = "lists/{id}"
+)
+class List(object):
     
     name = simple_api_field("name")
     position = simple_api_field("pos")
@@ -252,9 +261,11 @@ class List(ApiObject):
         #self._api.do_request("cards/%s" % card.id, method="delete")
         self._api.do_request("cards/%s/closed" % card.id, method="put", parameters={"value":"true"})
 
-class Board(ApiObject):
-    _api_object_url = "boards/{id}"
-    _api_object_fields = ("name", "desc", "subscribed")
+@api_metadata(
+    url = "boards/{id}",
+    default_fields = ("name", "desc", "subscribed")
+)
+class Board(object):
     
     name = simple_api_field("name")
     description = simple_api_field("desc")
@@ -304,8 +315,10 @@ class Board(ApiObject):
     def members(self, data):
         return self._fetch_objects("board/{id}/members", Member)
     
-class Notification(ApiObject):
-    _api_object_url = "notifications/{id}"
+@api_metadata(
+    url = "notifications/{id}"
+)
+class Notification(object):
     
     ADDED_TO_BOARD = 'addedToBoard'
     CREATED_CARD = 'createdCard'
@@ -314,26 +327,28 @@ class Notification(ApiObject):
     unread = simple_api_field("unread")
     
     @api_field
-    def card(self, data):
+    def card(self, data, repository):
         if "card" in data["data"]:
-            return self._api.get_object(Card, id=data["data"]["card"]["id"])
+            return repository.get_object(Card, id=data["data"]["card"]["id"])
     
     @api_field
-    def board(self, data):
+    def board(self, data, repository):
         if "board" in data["data"]:
-            return self._api.get_object(Board, id=data["data"]["board"]["id"])
+            return repository.get_object(Board, id=data["data"]["board"]["id"])
     
     @api_field
-    def list(self, data):
+    def list(self, data, repository):
         if "list" in data["data"]:
-            return self._api.get_object(Board, id=data["data"]["list"]["id"])
+            return repository.get_object(Board, id=data["data"]["list"]["id"])
     
     def read(self):
         self.unread = False
 
-class Member(ApiObject):
-    _api_object_url = "members/{id}"
-    _api_object_fields = ("email","username","fullName","url")
+@api_metadata(
+    url = "members/{id}",
+    default_fields = ("email","username","fullName","url")
+)
+class Member(object):
     
     email = simple_api_field("email", writable=False)
     username = simple_api_field("username")
@@ -341,14 +356,14 @@ class Member(ApiObject):
     url = simple_api_field("url", writable=False)
     
     @collection_api_field
-    def boards(self, data):
-        return self._fetch_objects("members/{id}/boards", Board)
+    def boards(self, data, api_data):
+        return api_data.fetch_objects("members/{id}/boards", Board)
     
     @collection_api_field
-    def cards(self, data):
-        return self._fetch_objects("members/{id}/cards", Card)
+    def cards(self, data, api_data):
+        return api_data.fetch_objects("members/{id}/cards", Card)
     
     @collection_api_field
-    def notifications(self, data):
-        return self._fetch_objects("members/{id}/notifications", Notification)
+    def notifications(self, data, api_data):
+        return api_data.fetch_objects("members/{id}/notifications", Notification)
     
