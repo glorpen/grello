@@ -6,11 +6,9 @@ Created on 30.12.2016
 from trello.utils import python_to_trello
 from trello.fields import api_field, simple_api_field, collection_api_field
 import datetime
-from trello.registry import events
-from trello import meta
-from trello.meta import api_metadata
+from trello.registry import events, api_object
 
-@api_metadata(
+@api_object(
     url = "cards/{card_id}/attachments/{id}",
     default_fields = ("id", "card_id")
 )
@@ -23,7 +21,7 @@ class Attachment(object):
     url = simple_api_field("url", writable=False)
     size = simple_api_field("bytes", writable=False)
 
-@api_metadata(
+@api_object(
     url = "labels/{id}",
     default_fields = ("color","name","uses")
 )
@@ -58,7 +56,7 @@ class Label(object):
             self.api_data["uses"].value = self.uses - 1
             self.logger.debug("Label uses counter decremented")
 
-@api_metadata(
+@api_object(
     url = "cards/{card_id}/checklist/{checklist_id}/checkItem/{id}",
     default_fields = ("id", "checklist_id", "card_id")
     # TODO: camelcase?
@@ -80,7 +78,7 @@ class Checkitem(object):
     def completed(self, data):
         return data["state"] == self.COMPLETE
 
-@api_metadata(
+@api_object(
     url = "checklists/{id}",
     default_fields = ("name", "pos", "idCard")
 )
@@ -111,7 +109,7 @@ class Checklist(object):
             "checked": "true" if checked else "false"
         }, checklist_id=self.id, card_id=self.card.id)
 
-@api_metadata(
+@api_object(
     url = "cards/{id}",
     default_fields = ("name","desc","subscribed","closed","dueComplete","due","idAttachmentCover","idBoard", "idList")
 )
@@ -226,7 +224,7 @@ class Card(object):
     def members(self, data):
         return self._fetch_objects("cards/{id}/members", Member)
 
-@api_metadata(
+@api_object(
     url = "lists/{id}"
 )
 class List(object):
@@ -261,7 +259,7 @@ class List(object):
         #self._api.do_request("cards/%s" % card.id, method="delete")
         self._api.do_request("cards/%s/closed" % card.id, method="put", parameters={"value":"true"})
 
-@api_metadata(
+@api_object(
     url = "boards/{id}",
     default_fields = ("name", "desc", "subscribed")
 )
@@ -315,7 +313,7 @@ class Board(object):
     def members(self, data):
         return self._fetch_objects("board/{id}/members", Member)
     
-@api_metadata(
+@api_object(
     url = "notifications/{id}"
 )
 class Notification(object):
@@ -344,7 +342,7 @@ class Notification(object):
     def read(self):
         self.unread = False
 
-@api_metadata(
+@api_object(
     url = "members/{id}",
     default_fields = ("email","username","fullName","url")
 )

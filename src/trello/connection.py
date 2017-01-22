@@ -8,27 +8,9 @@ from requests_oauthlib.oauth1_session import OAuth1Session
 from trello.utils import Logger
 import requests
 from trello.objects import Board, Member
-from trello.registry import events as api_registry
-from trello.repository import Repository, manager
-from trello.meta import registry
+from trello import registry
+from trello.context import Context
 
-class Context(object):
-    def __init__(self, connection):
-        super(Context, self).__init__()
-        
-        manager.add(self)
-        
-        self.repository = Repository(self)
-        self.connection = connection
-        
-        self.repository.set_service(self)
-    
-    def quit(self):
-        manager.remove(self)
-    
-    def trigger(self, event, source, subject, **kwargs):
-        api_registry.trigger(self, event, source, subject, **kwargs)
-    
 class ConsoleUI(object):
     def verify_pin(self, url):
         print("Go to the following link in your browser:")
@@ -65,7 +47,7 @@ class Api(Logger):
         return self.get_any(Board, id=board_id)
     
     def get_me(self):
-        default_fields = registry.get_default_fields(Member)
+        default_fields = registry.objects.get_default_fields(Member)
         return self.context.repository.get_object(Member, data=self.connection.do_request("members/me", parameters={"fields": default_fields}))
 
 class Connection(Logger):

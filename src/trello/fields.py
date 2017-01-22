@@ -63,7 +63,7 @@ class api_field(object):
         )
     
     def get_data(self, obj):
-        from trello.repository import manager
+        from trello.context import manager
         # TODO:
         context = manager.find_context(obj)
         api_data = context.repository.get_object_api_data(obj)

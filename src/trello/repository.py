@@ -5,40 +5,17 @@ Created on 08.01.2017
 '''
 from trello.registry import events
 from trello.utils import get_uid
-from trello.meta import ApiData
-
-class ObjectNotKnownException(Exception):
-    pass
-
-class Manager(object):
-    
-    def __init__(self):
-        super(Manager, self).__init__()
-        self.contexts = []
-    
-    def add(self, context):
-        self.contexts.append(context)
-    
-    def remove(self, context):
-        self.contexts.remove(context)
-    
-    def find_context(self, obj):
-        for c in self.contexts:
-            if c.repository.is_known(obj):
-                return c
-        raise ObjectNotKnownException()
-
-manager = Manager()
+from trello.data import ApiData
 
 class Repository(object):
     
-    def __init__(self, events_dispatcher):
+    def __init__(self, context):
         super(Repository, self).__init__()
         self.cache = {}
         self.services = {}
         self.ids = []
         
-        #self.events_dispatcher = events_dispatcher
+        self._context = context
         self.set_service(self)
     
     def _as_class_name(self, cls):
@@ -77,7 +54,8 @@ class Repository(object):
                 cache[uid][1].set_data(data)
         else:
             o = cls()
-            api_data = ApiData(o)
+            #TODO: pass context?
+            api_data = ApiData(o, context=self._context)
             
             cache[uid] = (o, api_data)
             self.ids.append(id(o))

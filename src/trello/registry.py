@@ -4,6 +4,8 @@ Created on 08.01.2017
 @author: glorpen
 '''
 from trello.utils import fill_args
+from trello.fields import api_field
+import re
 
 class EventDispatcher(object):
     
@@ -39,3 +41,58 @@ class EventDispatcher(object):
                 fill_args(l, service, context=context)(source, subject, **kwargs)
 
 events = EventDispatcher()
+
+class RegisteredObject(object):
+    
+    re_id_fields = re.compile(r"{([^}]+)}")
+    
+    def __init__(self, cls, url, fields):
+        super(RegisteredObject, self).__init__()
+        self.cls = cls
+        self.url = url
+        self.fields = fields
+    
+    @property
+    def id_fields(self):
+        return self.re_id_fields.findall(self.url)
+
+class ApiObjectRegistry(object):
+    
+    def __init__(self):
+        super(ApiObjectRegistry, self).__init__()
+        
+        self._objects = {}
+        self._class_fields = {}
+    
+    def register(self, url, default_fields=None):
+        def inner(cls):
+            self._objects[cls.__qualname__] = RegisteredObject(cls, url, default_fields)
+            return cls
+        return inner
+    
+    def get_fields(self, cls):
+        try:
+            ret = self._class_fields[id(cls)]
+        except KeyError:
+            fields = {}
+            visited = set()
+            for c in cls.__mro__:
+                for k,v in c.__dict__.items():
+                    if k not in visited and isinstance(v, api_field):
+                        fields[k] = v
+                    visited.add(k)
+            ret = self._class_fields[id(cls)] = fields
+        
+        return ret
+    
+    def get_id_fields_name(self, cls):
+        return self._objects[cls.__qualname__].id_fields
+    
+    def get_default_fields(self, cls):
+        return self._objects[cls.__qualname__].fields
+    
+    def get_url(self, cls):
+        return self._objects[cls.__qualname__].url 
+
+objects = ApiObjectRegistry()
+api_object = objects.register
