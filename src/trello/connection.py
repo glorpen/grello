@@ -25,43 +25,49 @@ class ConsoleUI(object):
 
 class Api(Logger):
     
-    def __init__(self, app_key, ui):
+    def __init__(self, app_key, ui, token_mode='rwa', token_expiration='30days'):
         super(Api, self).__init__()
         
-        self.connection = Connection(app_key, token=ui.load_token())
-        self.connection.verify_pin = ui.verify_pin
-        self.connection.on_new_token = ui.save_token
-        
-        self.context = Context(self.connection)
+        self.ui = ui
+        self.app_key = app_key
+        self.token_mode = token_mode
+        self.token_expiration = token_expiration
     
     def connect(self, app_secret):
-        self.connection.assure_token(app_secret)
+        c = Connection(
+            self.app_key, token=self.ui.load_token(),
+            token_mode=self.token_mode, token_expiration=self.token_expiration
+        )
+        c.verify_pin = self.ui.verify_pin
+        c.on_new_token = self.ui.save_token
+        
+        self.context = Context(c)
+        
+        c.assure_token(app_secret)
     
     def quit(self):
         self.context.quit()
     
     def get_any(self, cls, **kwargs):
-        return self.context.cache.get_object(cls, **kwargs)
+        return self.context.repository.get_object(cls, **kwargs)
     
     def get_board(self, board_id):
         return self.get_any(Board, id=board_id)
     
     def get_me(self):
-        default_fields = registry.objects.get_default_fields(Member)
-        return self.context.repository.get_object(Member, data=self.connection.do_request("members/me", parameters={"fields": default_fields}))
+        return self.context.repository.get_object(Member, id="me")
 
 class Connection(Logger):
     
     api_host = 'api.trello.com'
     api_version = 1
     
-    token_mode = "rwa"
-    token_expiration = "30days"
-    
-    def __init__(self, app_key, token=None):
+    def __init__(self, app_key, token=None, token_mode="rwa", token_expiration = "30days"):
         super(Connection, self).__init__()
         self.app_key = app_key
         self.token = token
+        self.token_mode = token_mode
+        self.token_expiration = token_expiration
         
         self.session = requests.Session()
     

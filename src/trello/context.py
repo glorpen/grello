@@ -4,7 +4,7 @@ Created on 22.01.2017
 @author: glorpen
 '''
 from trello.repository import Repository
-from trello.registry import events
+from trello.registry import events, BoundEventDispatcher
 
 class ObjectNotKnownException(Exception):
     pass
@@ -37,11 +37,12 @@ class Context(object):
         
         self.repository = Repository(self)
         self.connection = connection
+        self.event_dispatcher = BoundEventDispatcher(self)
         
         self.repository.set_service(self)
+        self.repository.set_service(self.event_dispatcher)
+        self.repository.set_service(self.repository)
+        self.repository.set_service(self.connection)
     
     def quit(self):
         manager.remove(self)
-    
-    def trigger(self, event, source, subject, **kwargs):
-        events.trigger(self, event, source, subject, **kwargs)

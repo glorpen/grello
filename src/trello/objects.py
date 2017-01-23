@@ -3,7 +3,7 @@ Created on 30.12.2016
 
 @author: glorpen
 '''
-from trello.utils import python_to_trello
+from trello.utils import python_to_trello, Logger
 from trello.fields import api_field, simple_api_field, collection_api_field
 import datetime
 from trello.registry import events, api_object
@@ -25,7 +25,7 @@ class Attachment(object):
     url = "labels/{id}",
     default_fields = ("color","name","uses")
 )
-class Label(object):
+class Label(Logger):
     
     RED = 'red'
     GREEN = 'green'
@@ -45,21 +45,20 @@ class Label(object):
         return "<Label %r:%r>" % (self.name, self.color)
     
     @events.listener("label.assigned")
-    def on_assigned(self, source, label, uses = None):
-        if label is self and self.api_data.loaded:
-            self.api_data["uses"].value = (self.uses + 1) if uses is None else uses
+    def on_assigned(self, api_data, source, label, uses = None):
+        if label is self and api_data.loaded:
+            api_data.get_field("uses").value = (self.uses + 1) if uses is None else uses
             self.logger.debug("Label uses counter incremented")
     
     @events.listener("label.unassigned")
-    def on_unassigned(self, source, label):
-        if label is self and self.api_data.loaded:
-            self.api_data["uses"].value = self.uses - 1
+    def on_unassigned(self, api_data, source, label):
+        if label is self and api_data.loaded:
+            api_data.get_field("uses").value = self.uses - 1
             self.logger.debug("Label uses counter decremented")
 
 @api_object(
     url = "cards/{card_id}/checklist/{checklist_id}/checkItem/{id}",
-    default_fields = ("id", "checklist_id", "card_id")
-    # TODO: camelcase?
+    default_fields = ("name", "pos", "state")
 )
 class Checkitem(object):
     COMPLETE = 'complete'
@@ -90,20 +89,20 @@ class Checklist(object):
     name = simple_api_field("name")
     
     @api_field
-    def card(self, data):
-        return self._api.get_object(Card, id=data["idCard"])
+    def card(self, data, repository):
+        return repository.get_object(Card, id=data["idCard"])
     
     @collection_api_field
-    def items(self, data):
-        return self._fetch_objects("checklists/{id}/checkItems", Checkitem, checklist_id=self.id, card_id=self.card.id)
+    def items(self, data, api_data):
+        return api_data.fetch_objects("checklists/{id}/checkItems", Checkitem, checklist_id=self.id, card_id=self.card.id)
     
     @items.remove
-    def items(self, item):
-        self._api.do_request("checklists/%s/checkItems/%s" % (self.id, item.id), method="delete")
+    def items(self, connection, item):
+        connection.do_request("checklists/%s/checkItems/%s" % (self.id, item.id), method="delete")
     
     @items.add
-    def items(self, name, pos=None, checked=False):
-        return self._fetch_object("checklists/{id}/checkItems", Checkitem, {
+    def items(self, api_data, name, pos=None, checked=False):
+        return api_data.fetch_object("checklists/{id}/checkItems", Checkitem, {
             "name": name,
             "pos": pos,
             "checked": "true" if checked else "false"
@@ -164,7 +163,7 @@ class Card(object):
         return (repository.get_object(Label, id=i) for i in api_data.do_request("cards/{id}/idLabels"))
     
     @labels.add
-    def labels(self, connection, repository, label=None, name=None, color=None):
+    def labels(self, connection, repository, event_dispatcher, label=None, name=None, color=None):
         uses = None
         
         if label:
@@ -173,17 +172,17 @@ class Card(object):
             data = connection.do_request("cards/%s/labels" % self.id, method="post", parameters={"name":name,"color":color})
             label = repository.get_object(Label, data=data)
             
-            self._api.trigger("label.created", self, label)
+            event_dispatcher.trigger("label.created", self, label)
             uses = label.uses
             
-        self._api.trigger("label.assigned", self, label, uses)
+        event_dispatcher.trigger("label.assigned", self, label, uses)
         
         return label
     
     @labels.remove
-    def labels(self, label):
-        self._api.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
-        self._api.trigger("label.unassigned", self, label)
+    def labels(self, connection, event_dispatcher, label):
+        connection.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
+        event_dispatcher.trigger("label.unassigned", self, label)
     
     @events.listener("label.removed")
     def on_label_removed(self, source, subject):
@@ -194,35 +193,35 @@ class Card(object):
             pass
     
     @collection_api_field
-    def checklists(self, data):
-        return self._fetch_objects("cards/{id}/checklists", Checklist)
+    def checklists(self, data, api_data):
+        return api_data.fetch_objects("cards/{id}/checklists", Checklist)
     
     @checklists.add
-    def checklists(self, name, pos=None):
-        return self._fetch_object("cards/{id}/checklists", Checklist, {
+    def checklists(self, api_data, name, pos=None):
+        return api_data.fetch_object("cards/{id}/checklists", Checklist, {
             "name": name,
             "pos": pos
         })
     
     @checklists.remove
-    def checklists(self, checklist):
-        self._api.do_request("checklists/%s" % (checklist.id,), method="delete")
+    def checklists(self, connection, checklist):
+        connection.do_request("checklists/%s" % (checklist.id,), method="delete")
     
     @api_field
-    def cover(self, data):
+    def cover(self, data, repository):
         cover_id = data["idAttachmentCover"]
         if cover_id:
-            return self._api.get_object(Attachment, card_id = self.id, id = cover_id)
+            return repository.get_object(Attachment, card_id = self.id, id = cover_id)
     
     @cover.setter
-    def cover(self, attachment):
-        self._api.do_request("cards/%s/idAttachmentCover" % self.id, method="put", parameters={"value": attachment.id})
+    def cover(self, connection, attachment):
+        connection.do_request("cards/%s/idAttachmentCover" % self.id, method="put", parameters={"value": attachment.id})
 
     # TODO board getter?
     
     @collection_api_field
-    def members(self, data):
-        return self._fetch_objects("cards/{id}/members", Member)
+    def members(self, data, api_data):
+        return api_data.fetch_objects("cards/{id}/members", Member)
 
 @api_object(
     url = "lists/{id}"
@@ -237,11 +236,11 @@ class List(object):
         return "<List %r>" % self.id
     
     @collection_api_field
-    def cards(self, data):
-        return self._fetch_objects("lists/{id}/cards", Card)
+    def cards(self, data, api_data):
+        return api_data.fetch_objects("lists/{id}/cards", Card)
     
     @cards.add
-    def cards(self, name, description=None, members=None, due=None):
+    def cards(self, repository, connection, name, description=None, members=None, due=None):
         #TODO: name=None, card=None - when providing card, card will be moved & move event triggered
         params = {"name": name}
         
@@ -252,18 +251,18 @@ class List(object):
         if due:
             params["due"] = python_to_trello(due)
         
-        return self._api.get_object(Card, data=self._api.do_request("lists/%s/cards" % self.id, method="post", parameters=params))
+        return repository.get_object(Card, data=connection.do_request("lists/%s/cards" % self.id, method="post", parameters=params))
     
     @cards.remove
-    def cards(self, card):
+    def cards(self, connection, card):
         #self._api.do_request("cards/%s" % card.id, method="delete")
-        self._api.do_request("cards/%s/closed" % card.id, method="put", parameters={"value":"true"})
+        connection.do_request("cards/%s/closed" % card.id, method="put", parameters={"value":"true"})
 
 @api_object(
     url = "boards/{id}",
     default_fields = ("name", "desc", "subscribed")
 )
-class Board(object):
+class Board(Logger):
     
     name = simple_api_field("name")
     description = simple_api_field("desc")
@@ -273,45 +272,45 @@ class Board(object):
         return '<Board %r>' % (self.id,)
     
     @collection_api_field
-    def lists(self, data):
-        return self._fetch_objects("boards/{id}/lists", List)
+    def lists(self, data, api_data):
+        return api_data.fetch_objects("boards/{id}/lists", List)
     
     @lists.add
-    def lists(self, name, pos=None):
-        return self._fetch_object("boards/{id}/lists", List, {"name":name,"pos":pos})
+    def lists(self, api_data, name, pos=None):
+        return api_data.fetch_object("boards/{id}/lists", List, {"name":name,"pos":pos})
     
     @lists.remove
-    def lists(self, list):
-        self._api.do_request("lists/%s/closed" % list.id, method="put", parameters={"value":'true'})
+    def lists(self, connection, list):
+        connection.do_request("lists/%s/closed" % list.id, method="put", parameters={"value":'true'})
     
     @collection_api_field
-    def labels(self, data):
-        items = self._fetch_objects("boards/{id}/labels", Label, parameters={"limit":1000})
+    def labels(self, data, api_data):
+        items = api_data.fetch_objects("boards/{id}/labels", Label, parameters={"limit":1000})
         # hm, there is no pagination
         if len(items) == 1000:
             self.logger.error("Label count for %r exceeds 1000 limit, adding new labels will create duplicates", self)
         return items
     
     @labels.add
-    def labels(self, name, color = None):
-        return self._fetch_object("boards/{id}/labels", Label, {"name":name,"color":color})
+    def labels(self, api_data, name, color = None):
+        return api_data.fetch_object("boards/{id}/labels", Label, {"name":name,"color":color})
     
     @labels.remove
-    def labels(self, label):
-        self._api.do_request("labels/%s" % label.id, method='delete')
-        self._api.trigger("label.removed", self, label)
+    def labels(self, connection, event_dispatcher, label):
+        connection.do_request("labels/%s" % label.id, method='delete')
+        event_dispatcher.trigger("label.removed", self, label)
     
     @events.listener("label.created")
-    def on_label_created(self, source, label):
+    def on_label_created(self, api_data, source, label):
         if source is self:
             return
-        if self.get_api_field_data("labels").loaded:
+        if api_data.get_field("labels").loaded:
             if label not in self.labels.items:
                 self.labels.items.append(label)
     
     @collection_api_field
-    def members(self, data):
-        return self._fetch_objects("board/{id}/members", Member)
+    def members(self, data, api_data):
+        return api_data.fetch_objects("board/{id}/members", Member)
     
 @api_object(
     url = "notifications/{id}"

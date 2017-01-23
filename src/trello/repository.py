@@ -7,6 +7,15 @@ from trello.registry import events
 from trello.utils import get_uid
 from trello.data import ApiData
 
+class CachedObject(object):
+    api_data = None
+    object = None
+    
+    def __init__(self, object, api_data):
+        super(CachedObject, self).__init__()
+        self.api_data = api_data
+        self.object = object
+
 class Repository(object):
     
     def __init__(self, context):
@@ -16,7 +25,6 @@ class Repository(object):
         self.ids = []
         
         self._context = context
-        self.set_service(self)
     
     def _as_class_name(self, cls):
         if isinstance(cls, str):
@@ -51,30 +59,41 @@ class Repository(object):
         
         if uid in cache:
             if data:
-                cache[uid][1].set_data(data)
+                cache[uid].api_data.set_data(data)
         else:
             o = cls()
             #TODO: pass context?
             api_data = ApiData(o, context=self._context)
             
-            cache[uid] = (o, api_data)
+            cache[uid] = CachedObject(o, api_data)
             self.ids.append(id(o))
             
             api_data.set(data, kwargs)
             #self.events_dispatcher.trigger("factory.create", self, o)
         
-        return cache[uid][0]
+        return cache[uid].object
     
     def get_object_api_data(self, obj):
         uid = self._get_object_key(obj.__class__, get_uid(obj.__class__, data=obj.__dict__))
         cache = self.get_object_cache(obj.__class__)
-        return cache[uid][1]
+        return cache[uid].api_data
     
     @events.listener("label.removed")
     def on_object_remove(self, source, subject):
         uid = self._get_object_key(subject.__class__, subject.get_ids())
         self.get_object_cache(subject.__class__).pop(uid, None)
         self.ids.remove(id(subject))
+    
+    @events.listener("object.id_changed")
+    def on_id_change(self, obj, old_ids):
+        cache = self.get_object_cache(obj.__class__)
+        
+        old_uid = self._get_object_key(obj.__class__, old_ids)
+        co = cache[old_uid]
+        new_uid = self._get_object_key(obj.__class__, co.api_data.get_ids())
+        
+        del cache[old_uid]
+        cache[new_uid] = co
     
     def is_known(self, obj):
         return id(obj) in self.ids

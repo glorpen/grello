@@ -6,11 +6,12 @@ Created on 18.01.2017
 
 from collections import OrderedDict
 from trello import registry
+from trello.utils import Logger
 
 class InvalidIdException(Exception):
     pass
 
-class ApiData(object):
+class ApiData(Logger):
     
     loaded = False
     _collected_fields = None
@@ -21,12 +22,13 @@ class ApiData(object):
         self._context = context
     
     @property
-    def fields(self):
+    def _fields(self):
         if self._collected_fields is None:
             fields = {}
+            fields_by_name = {}
             for k,f in registry.objects.get_fields(self.obj.__class__).items():
-                fields[id(f)] = f.create_data(self.obj, self)
-            self._collected_fields = fields
+                fields_by_name[k] = fields[id(f)] = f.create_data(self.obj, self)
+            self._collected_fields = {"id": fields, "name":fields_by_name}
         
         return self._collected_fields
     
@@ -58,8 +60,18 @@ class ApiData(object):
                 setattr(self.obj, name, value)
     
     def set_data(self, data):
-        if not hasattr(self.obj, "id"):
+        id_exists = hasattr(self.obj, "id")
+        id_changed = id_exists and self.obj.id != data["id"]
+        
+        if id_exists or id_changed:
+            if id_changed:
+                old_ids = self.get_ids()
+            
             self.set_ids(id=data["id"])
+            
+            if id_changed:
+                self.logger.info("Changed object id from %r to %r", old_ids, self.get_ids())
+                self._context.event_dispatcher.trigger("object.id_changed", self.obj, old_ids)
         
         for f in registry.objects.get_fields(self.obj.__class__).values():
             f.get_data(self.obj).data_to_load = data
@@ -70,8 +82,11 @@ class ApiData(object):
         data = self._context.connection.do_request(self.get_object_url(), {"fields": registry.objects.get_default_fields(self.obj.__class__)}, method="get")
         self.set_data(data)
     
-    def get_field(self, api_field_instance):
-        return self.fields[id(api_field_instance)]
+    def get_field(self, field_or_name):
+        if isinstance(field_or_name, str):
+            return self._fields["name"][field_or_name]
+        else:
+            return self._fields["id"][id(field_or_name)]
     
     def get_object_url(self):
         return registry.objects.get_url(self.obj.__class__).format(**self.get_ids())
@@ -87,8 +102,8 @@ class ApiData(object):
         return self._context.repository.get_objects(cls, data=data, **kwargs)
     
     def fetch_object(self, url, cls, parameters=None, method='post', **kwargs):
-        return self.api_context.cache.get_object(cls,
-            data=self._do_request(url, method=method, parameters=parameters),
+        return self._context.repository.get_object(cls,
+            data=self.do_request(url, method=method, parameters=parameters),
             **kwargs
         )
     

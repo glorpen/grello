@@ -25,22 +25,28 @@ class EventDispatcher(object):
             return f
         return inner
 
-    def trigger(self, context, event, source, subject, **kwargs):
-        repository = context.repository
+
+events = EventDispatcher()
+
+class BoundEventDispatcher(object):
+    def __init__(self, context):
+        super(BoundEventDispatcher, self).__init__()
+        self._context = context
+
+    def trigger(self, event, *args, **kwargs):
+        repository = self._context.repository
         
-        for l in self.listeners.get(event, []):
+        for l in events.get_listeners_for_event(event):
             parent_name = l.__qualname__.rsplit(".", 1)[0]
             for v in repository.get_object_cache(parent_name).values():
-                fill_args(l, v, context=context)(source, subject, **kwargs)
+                fill_args(l, v.object, context=self._context)(*args, **kwargs)
             
             try:
                 service = repository.get_service(parent_name)
             except KeyError:
                 pass
             else:
-                fill_args(l, service, context=context)(source, subject, **kwargs)
-
-events = EventDispatcher()
+                fill_args(l, service=service, context=self._context)(*args, **kwargs)
 
 class RegisteredObject(object):
     

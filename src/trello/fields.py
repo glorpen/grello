@@ -96,7 +96,7 @@ class simple_api_field(api_field):
     def simple_loader(self, obj, data):
         return data[self.data_name]
     
-    def f_setter(self, obj, value):
+    def f_setter(self, obj, value, connection, api_data):
         if not self.writable:
             raise AttributeError("Trello field %s is not writable" % self.data_name)
         
@@ -106,7 +106,7 @@ class simple_api_field(api_field):
         
         value = python_to_trello(value)
         
-        obj._api.do_request("%s/%s" % (obj.get_object_url(), self.data_name), parameters={"value": value}, method="put")
+        connection.do_request("%s/%s" % (api_data.get_object_url(), self.data_name), parameters={"value": value}, method="put")
 
 
 class ApiCollection(object):
