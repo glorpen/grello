@@ -63,7 +63,7 @@ class ApiData(Logger):
         id_exists = hasattr(self.obj, "id")
         id_changed = id_exists and self.obj.id != data["id"]
         
-        if id_exists or id_changed:
+        if not id_exists or id_changed:
             if id_changed:
                 old_ids = self.get_ids()
             
