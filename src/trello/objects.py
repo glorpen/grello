@@ -5,10 +5,11 @@ Created on 30.12.2016
 '''
 from trello.utils import ApiObject, api_field, simple_api_field,\
     collection_api_field
+import datetime
 
 class Attachment(ApiObject):
     
-    _id_fields = {"id":"id", "cardId":"card_id"}
+    _id_fields = ("id", "card_id")
     
     def _get_data_url(self):
         return "cards/%s/attachments/%s" % (self.card_id, self.id)
@@ -26,23 +27,92 @@ class Label(ApiObject):
     ORANGE = 'orange'
     BLUE = 'blue'
     PURPLE = 'purple'
+    BLACK = 'black'
+    
+    NO_COLOR = None
     
     def _get_data_url(self):
         return "labels/%s" % (self.id,)
     
     name = simple_api_field("name")
     color = simple_api_field("color")
+    uses = simple_api_field("uses", writable=False)
     
     def __repr__(self):
         return "<Label %r:%r>" % (self.name, self.color)
+    
+class Checkitem(ApiObject):
+    _id_fields = ("id", "checklist_id", "card_id")
+    
+    COMPLETE = 'complete'
+    INCOMPLETE = 'incomplete'
+    
+    def _get_data_url(self):
+        return "cards/%s/checklist/%s/checkItem/%s" % (self.card_id, self.checklist_id, self.id)
+    
+    def __repr__(self):
+        return "<Checkitem %r from checklist %r>" % (self.id, self.checklist_id)
+    
+    name = simple_api_field("name")
+    state = simple_api_field("state")
+    position = simple_api_field("pos")
+    
+    completed = simple_api_field("state")
+    
+    @completed.loader
+    def completed(self, data):
+        return data["state"] == self.COMPLETE
+
+class Checklist(ApiObject):
+    def _get_data_url(self):
+        return "checklists/%s" % self.id
+    
+    def __repr__(self):
+        return "<Checklist %r>" % (self.id,)
+    
+    name = simple_api_field("name")
+    
+    @api_field
+    def card(self, data):
+        return Card(id=data["idCard"], api=self._api)
+    
+    @collection_api_field
+    def items(self, data):
+        return (Checkitem(data=i, api=self._api, checklist_id=self.id, card_id=self.card.id) for i in data["checkItems"])
+    
+    @items.remove
+    def items(self, item):
+        self._api.do_request("checklists/%s/checkItems/%s" % (self.id, item.id), method="delete")
+    
+    @items.add
+    def items(self, name, pos=None, checked=False):
+        ret = self._api.do_request("checklists/%s/checkItems" % (self.id,), method="post", parameters={
+            "name": name,
+            "pos": pos,
+            "checked": "true" if checked else "false"
+        })
+        
+        return Checkitem(data=ret, checklist_id=self.id, card_id=self.card.id, api=self._api)
 
 class Card(ApiObject):
     def _get_data_url(self):
         return "cards/%s" % self.id
     
+    def __repr__(self):
+        return "<Card %r>" % self.id
+    
     name = simple_api_field("name")
     description = simple_api_field("desc")
     subscribed = simple_api_field("subscribed")
+    closed = simple_api_field("closed")
+    dueComplete = simple_api_field("dueComplete")
+    
+    due = simple_api_field("due")
+    
+    @due.loader
+    def due(self, data):
+        if data['due']:
+            return datetime.datetime.strptime(data['due'], '%Y-%m-%dT%H:%M:%S.%fZ')
     
     @collection_api_field
     def attachments(self, data):
@@ -54,6 +124,17 @@ class Card(ApiObject):
         else:
             return a
     
+    @attachments.add
+    def attachments(self, file=None, name=None, url=None, mime_type=None):
+        ret = self._api.do_request("cards/%s/attachments" % self.id, method="post", parameters={
+            "file": file,
+            "name": name,
+            "url": url,
+            "mimeType": mime_type
+        })
+        
+        return Attachment(card_id=self.id, data=ret, api=self._api)
+    
     @collection_api_field
     def labels(self, data):
         return (Label(data=i, api=self._api) for i in data["labels"])
@@ -61,7 +142,27 @@ class Card(ApiObject):
     @labels.add
     def labels(self, label):
         self._api.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
+        return label
     
+    @labels.remove
+    def labels(self, label):
+        self._api.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
+    
+    @collection_api_field
+    def checklists(self, data):
+        return (Checklist(id=i, api=self._api) for i in data["idChecklists"])
+    
+    @checklists.add
+    def checklists(self, name, pos=None):
+        data = self._api.do_request("cards/%s/checklists" % (self.id,), method="post", parameters={
+            "name": name,
+            "pos": pos
+        })
+        return Checklist(data=data, api=self._api, card_id=self.id)
+    
+    @checklists.remove
+    def checklists(self, checklist):
+        self._api.do_request("checklists/%s" % (checklist.id,), method="delete")
     
     @api_field
     def cover(self, data):
@@ -70,14 +171,10 @@ class Card(ApiObject):
             return Attachment(card_id = self.id, id = cover_id, api=self._api)
     
     @cover.setter
-    def cover(self, value):
-        #if attachement id on this card? - change cover id
-        #is from diffrent card? - copy
-        #is path from disk - upload
-        print(value)
-        # update attachments collection in this object
-    
-        
+    def cover(self, attachment):
+        self._api.do_request("cards/%s/idAttachmentCover" % self.id, method="put", parameters={"value": attachment.id})
+
+    #todo: board getter?
     
 class List(ApiObject):
     
@@ -102,11 +199,17 @@ class Board(ApiObject):
     def get_lists(self):
         return tuple(List(data=i, api=self._api) for i in self._api.do_request("boards/%s/lists" % self.id))
     
-    def get_labels(self):
-        return tuple(Label(data=i, api=self._api) for i in self._api.do_request("boards/%s/labels" % self.id))
+    @collection_api_field
+    def labels(self, data):
+        return (Label(data=i, api=self._api) for i in self._api.do_request("boards/%s/labels" % self.id))
     
-    def create_label(self, name, color = None):
+    @labels.add
+    def labels(self, name, color = None):
         return Label(
             data=self._api.do_request("boards/%s/labels" % self.id, method='post', parameters={"name":name,"color":color}),
             api=self._api
         )
+    
+    @labels.remove
+    def labels(self, label):
+        self._api.do_request("labels/%s" % label.id, method='delete')
