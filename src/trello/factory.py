@@ -3,7 +3,7 @@ Created on 08.01.2017
 
 @author: glorpen
 '''
-from trello.registry import api
+from trello.registry import events
 from trello.utils import get_uid
 
 class Factory(object):
@@ -24,8 +24,7 @@ class Factory(object):
         return self.cache[k]
     
     def get_multiple(self, cls, data, **kwargs):
-        for i in data:
-            yield self.get(cls, i, **kwargs)
+        return tuple(self.get(cls, i, **kwargs) for i in data)
     
     def _get_key(self, cls, id_dict):
         return"".join([cls.__qualname__, repr(list(id_dict.values()))])
@@ -43,7 +42,7 @@ class Factory(object):
         
         return cache[uid]
     
-    @api.listener("label.removed")
+    @events.listener("label.removed")
     def on_remove(self, source, subject):
         uid = self._get_key(subject.__class__, subject.get_ids())
         self.get_class_cache(subject.__class__).pop(uid, None)

@@ -1,45 +1,9 @@
 from trello.utils import Logger, get_uid
 import requests
 from requests_oauthlib.oauth1_session import OAuth1Session
-from trello.objects import Board
+from trello.objects import Board, Notification
 from trello.factory import Factory
-from trello.registry import api as api_registry
-
-"""
-class EventBus(Logger):
-    
-    def __init__(self):
-        super(EventBus, self).__init__()
-        self.listeners = {}
-    
-    def get_event_listeners(self, event):
-        if event not in self.listeners:
-            self.listeners[event] = {}
-        
-        return self.listeners[event]
-    
-    def subscribe(self, api_object):
-        for k, event in api_object.get_api_listeners():
-            f = getattr(api_object, k)
-            self.logger.debug("Subscribing %r to %r", f, event)
-            self.add_listener(event, f, target=api_object)
-    
-    def unsubscribe(self, api_object):
-        for k, event in api_object.get_api_listeners():
-            self.remove_listener(event, getattr(api_object, k))
-    
-    def add_listener(self, event, f, target=None):
-        self.get_event_listeners(event)[f]={"target": target, "f": f}
-    
-    def remove_listener(self, event, f):
-        self.get_event_listeners(event).pop(f, None)
-    
-    def trigger(self, event, source, *args, **kwargs):
-        self.logger.debug("Triggering %r", event)
-        for data in self.get_event_listeners(event).values():
-            if data["target"] is None or source is None or data["target"] is not source:
-                data["f"](*args, **kwargs)
-"""
+from trello.registry import events as api_registry
 
 class Api(Logger):
     
@@ -82,7 +46,7 @@ class Api(Logger):
         return input('What is the PIN? ')
     
     def _get_token(self, client_secret, mode="r", expiration="30days"):
-        modes=("read","write")
+        modes=("read", "write", "account")
         scope = ",".join([i for i in modes if i[0] in mode])
         
         request_token_url = 'https://trello.com/1/OAuthGetRequestToken'
@@ -109,22 +73,26 @@ class Api(Logger):
     
     def assure_token(self, app_secret):
         if self.token is None:
-            self.token = self._get_token(app_secret, "rw")
+            self.token = self._get_token(app_secret, "rwa")
         else:
             try:
                 self.get_token(self.token)
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
-                    self.token = self._get_token(app_secret, "rw")
+                    self.token = self._get_token(app_secret, "rwa")
                 else:
                     raise e from None
-
+        
+        print(self.token)
     
     def get_boards(self):
         return tuple(self.get_object(Board, id=i) for i in self.do_request("members/me")["idBoards"])
     
     def get_board(self, board_id):
         return self.get_object(Board, id=board_id)
+    
+    def get_notifications(self):
+        return tuple(self.get_objects(Notification, data=self.do_request("members/me/notifications")))
     
     def get_token(self, token_id):
         return self.do_request('tokens/%s' % token_id)

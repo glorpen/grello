@@ -4,11 +4,10 @@ Created on 29.12.2016
 @author: glorpen
 '''
 
-import logging
-import inspect
 import functools
 import datetime
 from collections import OrderedDict
+import logging
 
 # todo: cache + filling cached objects with new data if already fetched 
 
@@ -26,74 +25,84 @@ class Logger(object):
         super(Logger, self).__init__()
         self.logger = logging.getLogger(self.__class__.__name__)
 
-class FieldData(object):
-    loaded = False
-    value = None
-    data_version = None
+class ApiData(object):
+    data_to_load = None
+    
+    def __init__(self, data_requestor, loader, setter=None):
+        super(ApiData, self).__init__()
+        
+        self._data_requestor = data_requestor
+        self._loader = loader
+        self._setter = setter
+    
+    def _do_load(self, data):
+        return self._loader(data)
+    
+    @property
+    def loaded(self):
+        return hasattr(self.value)
+    
+    def get_value(self):
+        
+        if self.data_to_load is None and not hasattr(self, "value"):
+            self._data_requestor()
+        
+        if self.data_to_load is not None:
+            self.value = self._do_load(self.data_to_load)
+            self.data_to_load = None
+        
+        try:
+            return self.value
+        except AttributeError:
+            raise Exception("No data to load") from None
+    
+    def set_value(self, value):
+        if self._setter is None:
+            raise Exception("Setting value is not supported")
+        self._setter(value)
+        self.value = value
+        self.data_to_load = None
 
 class api_field(object):
     
-    _setter = None
-    _loader = None
+    f_loader = None
+    f_setter = None
     
     def __init__(self, loader=None):
         super(api_field, self).__init__()
-        if loader is not None:
+        if loader:
             self.loader(loader)
     
-    def get_field_data(self, obj) -> FieldData:
-        name = "__api_field"
+    def get_new_data(self, obj):
+        return ApiData(
+            loader = functools.partial(self.f_loader, obj),
+            setter = functools.partial(self.f_setter, obj) if self.f_setter else None,
+            data_requestor = obj.load
+        )
+    
+    def get_data(self, obj):
+        name = "api_field_data_%d" % hash(self)
         try:
             ret = getattr(obj, name)
         except AttributeError:
-            ret = {}
+            ret = self.get_new_data(obj)
             setattr(obj, name, ret)
         
-        k = hash(self)
-        
-        if k not in ret:
-            ret[k] = FieldData()
-        
-        return ret[k]
-    
-    def setter(self, f):
-        self._setter = f
-        return self
-    
-    def loader(self, f):
-        self._loader = f
-        return self
-    
-    def normalize_loaded_value(self, obj, v):
-        return v
-    
-    def load(self, obj):
-        field_data = self.get_field_data(obj)
-        
-        value = self._loader(obj, obj.get_api_data())
-        value = self.normalize_loaded_value(obj ,value)
-        
-        field_data.value = value
-        field_data.data_version = obj._api_data_version
-        field_data.loaded = True
-    
-    def __set__(self, obj, value):
-        if value == self.__get__(obj):
-            return
-        
-        self._setter(obj, value)
-        self.get_field_data(obj).value = value
-    
-    def is_fresh(self, field_data, obj):
-        return field_data.data_version >= obj._api_data_version
+        return ret
     
     def __get__(self, obj, cls=None):
-        field_data = self.get_field_data(obj)
-        
-        if not field_data.loaded or not self.is_fresh(field_data, obj):
-            self.load(obj)
-        
-        return self.get_field_data(obj).value
+        return self.get_data(obj).get_value()
+    
+    def __set__(self, obj, value):
+        return self.get_data(obj).set_value(value)
+    
+    def loader(self, f):
+        self.f_loader = f
+        return self
+    
+    def setter(self, f):
+        self.f_setter = f
+        return self
 
 class simple_api_field(api_field):
     
@@ -107,92 +116,79 @@ class simple_api_field(api_field):
     def simple_loader(self, obj, data):
         return data[self.data_name]
     
-    def _setter(self, obj, value):
+    def f_setter(self, obj, value):
         if not self.writable:
             raise AttributeError("Trello field %s is not writable" % self.data_name)
         
         value = python_to_trello(value)
         
+        # skip request if value didn't change
+        if self.__get__(obj) == value:
+            return
+        
         obj._api.do_request("%s/%s" % (obj.get_object_url(), self.data_name), parameters={"value": value}, method="put")
 
-class api_listener(object):
-    def __init__(self, event):
-        super(api_listener, self).__init__()
-        self.event = event
+class ApiMetadata(object):
     
-    def __call__(self, f):
-        f._api_listener_event = self.event
-        return f
-
-class ApiObject(Logger):
+    loaded = False
     
-    _api_id_fields = ("id",)
-    _api_data = None
-    _api_registered_fields = None
-    _api_data_version = None
-    _api_object_url = None
+    def __init__(self, obj):
+        super(ApiMetadata, self).__init__()
+        self.obj = obj
     
-    @classmethod
-    def get_registered_fields(cls):
-        if cls._api_registered_fields is None:
-            cls._find_tagged_properties()
-        return cls._api_registered_fields
-    
-    @classmethod
-    def _find_tagged_properties(cls):
+    def get_fields(self):
         fields = {}
-        for c in reversed(inspect.getmro(cls)):
-            if hasattr(c, "__dict__"):
-                for k,v in c.__dict__.items():
-                    if isinstance(v, api_field):
-                        fields[k] = v
-        cls._api_registered_fields = fields
+        visited = set()
+        for cls in self.obj.__class__.__mro__:
+            for k,v in cls.__dict__.items():
+                if k not in visited and isinstance(v, api_field):
+                    fields[k] = v.get_data(self.obj)
+                visited.add(k)
+        return fields
     
-    def get_api_field_data(self, name):
-        return self.get_registered_fields()[name].get_field_data(self)
+    def load(self, data):
+        for v in self.get_fields().values():
+            v.data_to_load = data
+        self.loaded = True
     
-    @property
-    def is_loaded(self):
-        return self._api_data is not None
+    def __getitem__(self, name):
+        return self.get_fields()[name]
+
+class Loadable(Logger):
+    _api_object_url = None
+    _api_id_fields = ("id",)
     
-    def __init__(self, api, **kwargs):
-        super(ApiObject, self).__init__()
-        
+    def __init__(self, api, data=None, **kwargs):
+        super(Loadable, self).__init__()
         self._api = api
-        
-        data = kwargs.pop("data", None)
         
         self.set_ids(**kwargs)
         
         if data is not None:
             self.set_data(data)
         
-        #todo: validate id completion
-    
-    def set_ids(self, **kwargs):
-        for name, value in kwargs.items():
-            if name not in self._api_id_fields:
-                raise Exception("%r is not a id field, available names: %r" % (name, self.id_fields))
-            else:
-                setattr(self, name, value)
-    
-    def set_data(self, data):
-        self.set_ids(id=data["id"])
-        self._api_data = data
-        self._api_data_version = datetime.datetime.utcnow()
+        #TODO: validate id completion
     
     def get_object_url(self):
         return self._api_object_url.format(**self.get_ids())
     
-    def get_api_data(self):
-        if self._api_data is None:
-            data = self._api.do_request(self.get_object_url())
-            self.set_data(data)
-        
-        return self._api_data
-    
     def get_ids(self):
         return OrderedDict((name, getattr(self, name)) for name in self._api_id_fields)
+    
+    def load(self):
+        data = self._api.do_request(self.get_object_url(), method="get")
+        self.set_data(data)
+    
+    def set_ids(self, **kwargs):
+        for name, value in kwargs.items():
+            if name not in self._api_id_fields:
+                raise Exception("%r is not a id field, available names: %r" % (name, self._api_id_fields))
+            else:
+                setattr(self, name, value)
+    
+    def set_data(self, data):
+        if not hasattr(self, "id"):
+            self.set_ids(id=data["id"])
 
 def get_uid(cls, data=None, kwargs={}):
     ret = {}
@@ -204,20 +200,40 @@ def get_uid(cls, data=None, kwargs={}):
             raise Exception("Not all ids found")
     return ret
 
-class ApiCollection(Logger):
+class ApiCollection(object):
     
     _api_add = None
     _api_remove = None
     
-    def __init__(self, items):
+    def __init__(self, items_generator, always_fresh, adder=None, remover=None):
         super(ApiCollection, self).__init__()
-        self.items = list(items)
+        self._items_generator = items_generator
+        self._always_fresh = always_fresh
+        
+        self._api_add = adder
+        self._api_remove = remover
+    
+    @property
+    def items(self):
+        try:
+            return self._items
+        except AttributeError:
+            self._items = list(self._items_generator())
+            return self._items
+    
+    @property
+    def loaded(self):
+        return hasattr(self, "_items")
     
     def add(self, *args, **kwargs):
         if self._api_add is None:
             raise Exception("Adding is not supported")
         
         item = self._api_add(*args, **kwargs)
+        
+        if self._always_fresh and not self.loaded:
+            return item
+        
         self.items.append(item)
         return item
     
@@ -226,6 +242,10 @@ class ApiCollection(Logger):
             raise Exception("Removing is not supported")
         
         self._api_remove(item)
+        
+        if self._always_fresh and not self.loaded:
+            return
+        
         self.items.remove(item)
     
     def __repr__(self):
@@ -234,10 +254,43 @@ class ApiCollection(Logger):
     def __iter__(self):
         yield from self.items
 
+class CollectionApiData(ApiData):
+    
+    def __init__(self, adder=None, remover=None, always_fresh=False, **kwargs):
+        super(CollectionApiData, self).__init__(**kwargs)
+        
+        self.f_add = adder
+        self.f_remove = remover
+        self.always_fresh = always_fresh
+    
+    def _do_load(self, data):
+        loader = functools.partial(super(CollectionApiData, self)._do_load, data)
+    
+        return ApiCollection(
+            loader,
+            self.always_fresh,
+            adder=self.f_add,
+            remover=self.f_remove
+        )
+    
+    def set_value(self, value):
+        raise AttributeError("Collection cannot be replaced")
+    
+    def get_value(self):
+        if self.always_fresh:
+            try:
+                return self.value
+            except AttributeError:
+                pass
+        
+        return super(CollectionApiData, self).get_value()
+
 class collection_api_field(api_field):
     
     f_add = None
     f_remove = None
+    
+    always_fresh = False
     
     def __init__(self, loader=None, always_fresh=False):
         super(collection_api_field, self).__init__(loader=loader)
@@ -247,26 +300,31 @@ class collection_api_field(api_field):
         self.loader(f)
         return self
     
-    def _setter(self, obj, value):
-        raise AttributeError("Collection is not writable")
+    def setter(self, f):
+        raise AttributeError("Collection cannot be replaced")
     
     def add(self, f):
         self.f_add = f
         return self
     
-    def is_fresh(self, field_data, obj):
-        return self.always_fresh or super(collection_api_field, self).is_fresh(field_data, obj)
-    
     def remove(self, f):
         self.f_remove = f
         return self
     
-    def normalize_loaded_value(self, obj, value):
-        coll = ApiCollection(value)
-        
-        if self.f_add:
-            coll._api_add = functools.partial(self.f_add, obj)
-        if self.f_remove:
-            coll._api_remove = functools.partial(self.f_remove, obj)
-        
-        return coll
+    def get_new_data(self, obj):
+        return CollectionApiData(
+            loader = functools.partial(self.f_loader, obj),
+            remover = functools.partial(self.f_remove, obj) if self.f_remove else None,
+            adder = functools.partial(self.f_add, obj) if self.f_add else None,
+            always_fresh = self.always_fresh,
+            data_requestor = obj.load
+        )
+    
+class ApiObject(Loadable):
+    def __init__(self, *args, **kwargs):
+        self.api_data = ApiMetadata(self)
+        super(ApiObject, self).__init__(*args, **kwargs)
+    
+    def set_data(self, data):
+        super(ApiObject, self).set_data(data)
+        self.api_data.load(data)

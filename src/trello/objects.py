@@ -4,12 +4,9 @@ Created on 30.12.2016
 @author: glorpen
 '''
 from trello.utils import ApiObject, api_field, simple_api_field,\
-    collection_api_field, api_listener, python_to_trello
+    collection_api_field, python_to_trello
 import datetime
-from trello.registry import api
-
-# TOOD: remove label from event_bus when label is removed
-
+from trello.registry import events
 
 class Attachment(ApiObject):
     
@@ -42,16 +39,16 @@ class Label(ApiObject):
     def __repr__(self):
         return "<Label %r:%r>" % (self.name, self.color)
     
-    @api_listener("label.assigned")
+    @events.listener("label.assigned")
     def on_assigned(self, source, label, uses = None):
-        if label is self and self.is_loaded:
-            self.get_api_field_data("uses").value = (self.uses + 1) if uses is None else uses
+        if label is self and self.api_data.loaded:
+            self.api_data["uses"].value = (self.uses + 1) if uses is None else uses
             self.logger.debug("Label uses counter incremented")
     
-    @api_listener("label.unassigned")
+    @events.listener("label.unassigned")
     def on_unassigned(self, source, label):
-        if label is self and self.is_loaded:
-            self.get_api_field_data("uses").value = self.uses - 1
+        if label is self and self.api_data.loaded:
+            self.api_data["uses"].value = self.uses - 1
             self.logger.debug("Label uses counter decremented")
     
 class Checkitem(ApiObject):
@@ -141,7 +138,7 @@ class Card(ApiObject):
     
     @collection_api_field
     def labels(self, data):
-        return (self._api.get_objects(Label, data=data["labels"]))
+        return self._api.get_objects(Label, data=data["labels"])
     
     @labels.add
     def labels(self, label=None, name=None, color=None):
@@ -165,13 +162,13 @@ class Card(ApiObject):
         self._api.do_request("cards/%s/idLabels/%s" % (self.id, label.id), method="delete")
         self._api.trigger("label.unassigned", self, label)
     
-    @api.listener("label.removed")
+    @events.listener("label.removed")
     def on_label_removed(self, source, subject):
-        if self.get_api_field_data("labels").loaded:
-            try:
-                self.labels.remove(subject)
-            except ValueError:
-                pass
+        # labels are fetched together with Card data
+        try:
+            self.labels.items.remove(subject)
+        except ValueError:
+            pass
     
     @collection_api_field
     def checklists(self, data):
@@ -183,7 +180,7 @@ class Card(ApiObject):
             "name": name,
             "pos": pos
         })
-        return self._api.get_object(Checklist, data=data, card_id=self.id)
+        return self._api.get_object(Checklist, data=data)
     
     @checklists.remove
     def checklists(self, checklist):
@@ -238,6 +235,8 @@ class List(ApiObject):
 class Board(ApiObject):
     _api_object_url = "boards/{id}"
     
+    name = simple_api_field("name")
+    
     def __repr__(self):
         return '<Board %r>' % (self.id,)
     
@@ -274,10 +273,38 @@ class Board(ApiObject):
         self._api.do_request("labels/%s" % label.id, method='delete')
         self._api.trigger("label.removed", self, label)
     
-    @api.listener("label.created")
+    @events.listener("label.created")
     def on_label_created(self, source, label):
         if source is self:
             return
         if self.get_api_field_data("labels").loaded:
             if label not in self.labels.items:
                 self.labels.items.append(label)
+
+class Notification(ApiObject):
+    _api_object_url = "notifications/{id}"
+    
+    ADDED_TO_BOARD = 'addedToBoard'
+    CREATED_CARD = 'createdCard'
+    
+    type = simple_api_field("type", writable=False)
+    unread = simple_api_field("unread")
+    
+    @api_field
+    def card(self, data):
+        if "card" in data["data"]:
+            return self._api.get_object(Card, id=data["data"]["card"]["id"])
+    
+    @api_field
+    def board(self, data):
+        if "board" in data["data"]:
+            return self._api.get_object(Board, id=data["data"]["board"]["id"])
+    
+    @api_field
+    def list(self, data):
+        if "list" in data["data"]:
+            return self._api.get_object(Board, id=data["data"]["list"]["id"])
+    
+    def read(self):
+        self.unread = False
+    

@@ -28,20 +28,4 @@ class Registry(object):
             for v in cache.get_class_cache(parent_name).values():
                 l(v, source, subject, *args, **kwargs)
 
-api = Registry()
-
-if __name__ == "__main__":
-    class Test(object):
-        
-        _api_id_fields = ("id",)
-        
-        def __init__(self, *args, **kwargs):
-            super(Test, self).__init__()
-        
-        @api.listener('label.assigned')
-        def asd(self, source, subject, *args, **kwargs):
-            print(args, kwargs)
-    
-    c = Factory(api=None)
-    c.get(Test, id=123)
-    api.trigger(c, "label.assigned", "test-source", "subject", "argg")
+events = Registry()
