@@ -9,8 +9,7 @@ import datetime
 from trello.registry import events, api_object
 
 @api_object(
-    url = "cards/{card_id}/attachments/{id}",
-    default_fields = ("id", "card_id")
+    url = "cards/{card_id}/attachments/{id}"
 )
 class Attachment(object):
     def __repr__(self):

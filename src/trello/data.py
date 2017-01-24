@@ -55,7 +55,7 @@ class ApiData(Logger):
     def set_ids(self, **kwargs):
         for name, value in kwargs.items():
             if name not in self.get_id_fields_name():
-                raise InvalidIdException("%r is not a id field, available names: %r" % (name, self._api_id_fields))
+                raise InvalidIdException("%r is not a id field, available names: %r" % (name, self.get_id_fields_name()))
             else:
                 setattr(self.obj, name, value)
     
