@@ -3,8 +3,8 @@ Created on 08.01.2017
 
 @author: glorpen
 '''
-from trello.utils import fill_args
-from trello.fields import api_field
+from grello.utils import fill_args
+from grello.fields import api_field
 import re
 
 class EventDispatcher(object):

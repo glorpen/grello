@@ -4,7 +4,7 @@ Created on 14.01.2017
 @author: glorpen
 '''
 import unittest
-from trello.data import InvalidIdException, ApiData
+from grello.data import InvalidIdException, ApiData
 from unittest.mock import patch, MagicMock
 
 class SomeObject(object): pass
@@ -12,7 +12,7 @@ class SomeObject(object): pass
 class TestApiData(unittest.TestCase):
     
     def assertObjectsIds(self, ids_data, expected_ids=False, msg=None):
-        with patch("trello.registry.objects") as objects:
+        with patch("grello.registry.objects") as objects:
             objects.get_id_fields_name = MagicMock(return_value=("id","id2"))
         
             obj = SomeObject()

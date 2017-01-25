@@ -27,7 +27,7 @@ class Logger(object):
         self.logger = logging.getLogger(self.__class__.__name__)
 
 def get_uid(cls, data=None, kwargs={}):
-    from trello import registry
+    from grello import registry
     
     ret = OrderedDict()
     data = data or {}
@@ -85,7 +85,7 @@ class ArgFiller(object):
 def fill_args(f, obj=None, service=None, context=None):
     
     if context is None:
-        from trello.context import manager
+        from grello.context import manager
         context = manager.find_context(obj)
     
     af = ArgFiller(f).inject(context, obj)

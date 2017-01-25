@@ -3,10 +3,10 @@ Created on 30.12.2016
 
 @author: glorpen
 '''
-from trello.utils import python_to_trello, Logger
-from trello.fields import api_field, simple_api_field, collection_api_field
+from grello.utils import python_to_trello, Logger
+from grello.fields import api_field, simple_api_field, collection_api_field
 import datetime
-from trello.registry import events, api_object
+from grello.registry import events, api_object
 
 @api_object(
     url = "cards/{card_id}/attachments/{id}"

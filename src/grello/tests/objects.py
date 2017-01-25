@@ -5,13 +5,13 @@ Created on 14.01.2017
 '''
 import unittest
 from unittest import mock
-from trello.data import ApiData
-from trello.objects import Attachment, Label, Card
+from grello.data import ApiData
+from grello.objects import Attachment, Label, Card
 from unittest.mock import patch
 
 class TestAttachment(unittest.TestCase):
     
-    @patch("trello.context.manager")
+    @patch("grello.context.manager")
     def test_loading_request(self, manager):
         context = mock.MagicMock()
         
@@ -28,7 +28,7 @@ class TestAttachment(unittest.TestCase):
 
 class TestLabel(unittest.TestCase):
     
-    @patch("trello.context.manager")
+    @patch("grello.context.manager")
     def test_loading_request(self, manager):
         context = mock.MagicMock()
         
@@ -41,7 +41,7 @@ class TestLabel(unittest.TestCase):
         
         context.connection.do_request.assert_called_with('labels/some_id', {'fields': ('color', 'name', 'uses')}, method="get")
     
-    @patch("trello.context.manager")
+    @patch("grello.context.manager")
     def test_assigment_trigger(self, manager):
         context = mock.MagicMock()
         manager.find_context.return_value = context

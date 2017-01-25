@@ -5,8 +5,8 @@ Created on 18.01.2017
 '''
 
 from collections import OrderedDict
-from trello import registry
-from trello.utils import Logger
+from grello import registry
+from grello.utils import Logger
 
 class InvalidIdException(Exception):
     pass

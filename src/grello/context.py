@@ -3,8 +3,8 @@ Created on 22.01.2017
 
 @author: glorpen
 '''
-from trello.repository import Repository
-from trello.registry import events, BoundEventDispatcher
+from grello.repository import Repository
+from grello.registry import events, BoundEventDispatcher
 
 class ObjectNotKnownException(Exception):
     pass

@@ -4,7 +4,7 @@ Created on 21.01.2017
 @author: glorpen
 '''
 import functools
-from trello.utils import python_to_trello, fill_args
+from grello.utils import python_to_trello, fill_args
 from inspect import signature
 
 class ApiData(object):
@@ -63,7 +63,7 @@ class api_field(object):
         )
     
     def get_data(self, obj):
-        from trello.context import manager
+        from grello.context import manager
         # TODO:
         context = manager.find_context(obj)
         api_data = context.repository.get_object_api_data(obj)

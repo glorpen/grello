@@ -3,9 +3,9 @@ Created on 08.01.2017
 
 @author: glorpen
 '''
-from trello.registry import events
-from trello.utils import get_uid
-from trello.data import ApiData
+from grello.registry import events
+from grello.utils import get_uid
+from grello.data import ApiData
 
 class CachedObject(object):
     api_data = None

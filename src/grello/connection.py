@@ -5,11 +5,11 @@ Created on 18.01.2017
 '''
 
 from requests_oauthlib.oauth1_session import OAuth1Session
-from trello.utils import Logger
+from grello.utils import Logger
 import requests
-from trello.objects import Board, Member
-from trello import registry
-from trello.context import Context
+from grello.objects import Board, Member
+from grello import registry
+from grello.context import Context
 
 class ConsoleUI(object):
     def verify_pin(self, url):
@@ -100,9 +100,9 @@ class Connection(Logger):
         modes=("read", "write", "account")
         scope = ",".join([i for i in modes if i[0] in mode])
         
-        request_token_url = 'https://trello.com/1/OAuthGetRequestToken'
-        authorize_url = 'https://trello.com/1/OAuthAuthorizeToken'
-        access_token_url = 'https://trello.com/1/OAuthGetAccessToken'
+        request_token_url = 'https://grello.com/1/OAuthGetRequestToken'
+        authorize_url = 'https://grello.com/1/OAuthAuthorizeToken'
+        access_token_url = 'https://grello.com/1/OAuthGetAccessToken'
 
         session = OAuth1Session(client_key=self.app_key, client_secret=client_secret)
         response = session.fetch_request_token(request_token_url)
