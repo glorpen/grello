@@ -2,3 +2,6 @@ __pycache__
 env/
 /.project
 /.pydevproject
+build/
+*.egg-info
+dist/
