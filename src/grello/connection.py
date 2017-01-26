@@ -16,10 +16,10 @@ class ConsoleUI(object):
         print(url)
         return input('What is the PIN? ')
     
-    def save_token(self, token):
-        print("New token: %r" % token)
+    def save_keys(self, token, token_secret):
+        print("New token: %r, %r" % (token, token_secret))
     
-    def load_token(self):
+    def load_keys(self):
         return None
 
 class Api(Logger):
@@ -32,7 +32,6 @@ class Api(Logger):
         self.token_mode = token_mode
         self.token_expiration = token_expiration
     
-    def connect(self, app_secret):
         c_args = {
             "app_key": self.app_key,
             "ui": self.ui,
@@ -43,13 +42,14 @@ class Api(Logger):
         if self.token_expiration is not None:
             c_args['token_expiration'] = self.token_expiration
         
-        c = Connection(**c_args)
+        self.connection = Connection(**c_args)
+        self.context = Context(self.connection)
         
-        self.context = Context(c)
-        
-        c.assure_token(app_secret)
+    def connect(self, app_secret):
+        self.connection.connect(app_secret)
     
-    def quit(self):
+    def disconnect(self):
+        self.connection.disconnect()
         self.context.quit()
     
     def get_any(self, cls, **kwargs):
@@ -61,6 +61,11 @@ class Api(Logger):
     def get_me(self):
         return self.get_any(Member, id="me")
 
+class NotAuthorizedException(Exception):
+    pass
+class NotFoundException(Exception):
+    pass
+
 class Connection(Logger):
     
     api_host = 'api.trello.com'
@@ -70,6 +75,8 @@ class Connection(Logger):
     MODE_READ = 1<<0
     MODE_WRITE = 1<<1
     MODE_ACCOUNT = 1<<2
+    
+    session = None
     
     def __init__(self, app_key, ui=None, token_mode=MODE_READ|MODE_WRITE|MODE_ACCOUNT, token_expiration = "30days"):
         super(Connection, self).__init__()
@@ -81,39 +88,51 @@ class Connection(Logger):
             ui = ConsoleUI()
         
         self.ui = ui
-        self.token = ui.load_token()
-        
-        self.session = requests.Session()
     
-    def do_request(self, uri, parameters=None, method="get", files = None):
+    def connect(self, app_secret):
+        self.session = self.get_session(app_secret)
+    
+    def _create_session(self, resource_key, resource_secret, app_secret):
+        return OAuth1Session(
+            self.app_key,
+            client_secret=app_secret,
+            resource_owner_key=resource_key,
+            resource_owner_secret=resource_secret
+        )
+    
+    def disconnect(self):
+        self.session.close()
+    
+    def do_request(self, *args, **kwargs):
+        return self._do_session_request(self.session, *args, **kwargs)
+    
+    def _do_session_request(self, session, uri, parameters=None, method="get", files = None, max_retries = 3):
         self.logger.info("Requesting %s:%s", method, uri)
         
-        parameters = parameters or {}
-        parameters["key"] = self.app_key
-        if self.token:
-            parameters["token"] = self.token
-        
-        max_tries = 3
         last_exception = None
-        for i in range(1,max_tries+1):
+        for i in range(0, max_retries+1):
+            
+            if i > 0:
+                self.logger.info("Retry %d of %d", i, max_retries)
             
             try:
-                r = getattr(self.session, method)("https://%s/%d/%s" % (self.api_host, self.api_version, uri), params=parameters, files=files)
+                r = getattr(session, method)("https://%s/%d/%s" % (self.api_host, self.api_version, uri), params=parameters, files=files)
                 if r.status_code == 200:
                     return r.json()
+                elif r.status_code == 401:
+                    raise NotAuthorizedException()
+                elif r.status_code == 404:
+                    raise NotFoundException()
+                
                 r.raise_for_status()
             
             except requests.exceptions.RequestException as e:
                 last_exception = e
                 continue
-            
-            finally:
-                if i > 1:
-                    self.logger.info("Try %d or %d", i, max_tries)
         
         raise last_exception
 
-    def _get_token(self, client_secret):
+    def _do_auth(self, client_secret):
         modes={self.MODE_READ: "read", self.MODE_WRITE: "write", self.MODE_ACCOUNT: "account"}
         scope = ",".join([name for v,name in modes.items() if v & self.token_mode])
         
@@ -123,7 +142,8 @@ class Connection(Logger):
 
         session = OAuth1Session(client_key=self.app_key, client_secret=client_secret)
         response = session.fetch_request_token(request_token_url)
-        resource_owner_key, resource_owner_secret = response.get('oauth_token'), response.get('oauth_token_secret')
+        resource_owner_key = response.get('oauth_token')
+        resource_owner_secret = response.get('oauth_token_secret')
         
         url = "{authorize_url}?oauth_token={oauth_token}&scope={scope}&expiration={expiration}&name={app_name}".format(
             authorize_url=authorize_url,
@@ -135,27 +155,40 @@ class Connection(Logger):
         
         oauth_verifier = self.ui.verify_pin(url)
         
-        session = OAuth1Session(client_key=self.app_key, client_secret=client_secret,
-                                resource_owner_key=resource_owner_key, resource_owner_secret=resource_owner_secret,
-                                verifier=oauth_verifier)
-        return session.fetch_access_token(access_token_url)["oauth_token"]
+        session = OAuth1Session(
+            client_key=self.app_key,
+            client_secret=client_secret,
+            resource_owner_key=resource_owner_key,
+            resource_owner_secret=resource_owner_secret,
+            verifier=oauth_verifier
+        )
+        response = session.fetch_access_token(access_token_url)
+        return (response.get('oauth_token'), response.get('oauth_token_secret'))
     
-    def assure_token(self, app_secret):
+    def get_session(self, app_secret):
         
-        def get_new_token():
-            self.token = self._get_token(app_secret)
-            self.ui.save_token(self.token)
+        keys = self.ui.load_keys()
         
-        if self.token is None:
-            get_new_token()
+        if keys is None:
+            token = token_secret = None
         else:
-            try:
-                self.get_token(self.token)
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 401:
-                    get_new_token()
-                else:
-                    raise e from None
+            token, token_secret = keys
+        
+        if token is not None:
+            session = self.get_session_for_token(token, token_secret, app_secret)
+        
+        if token is None or session is None:
+            token, token_secret = self._do_auth(app_secret)
+            self.ui.save_keys(token, token_secret)
+            session = self._create_session(token, token_secret, app_secret)
+        
+        return session
     
-    def get_token(self, token_id):
-        return self.do_request('tokens/%s' % token_id)
+    def get_session_for_token(self, token, token_secret, app_secret):
+        session = self._create_session(token, token_secret, app_secret)
+        try:
+            self._do_session_request(session, 'tokens/%s' % token)
+        except NotAuthorizedException:
+            return None
+        
+        return session
