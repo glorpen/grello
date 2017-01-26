@@ -4,11 +4,10 @@ Created on 18.01.2017
 @author: glorpen
 '''
 
+import requests
 from requests_oauthlib.oauth1_session import OAuth1Session
 from grello.utils import Logger
-import requests
 from grello.objects import Board, Member
-from grello import registry
 from grello.context import Context
 
 class ConsoleUI(object):
@@ -84,18 +83,24 @@ class Connection(Logger):
             parameters["token"] = self.token
         
         max_tries = 3
+        last_exception = None
         for i in range(1,max_tries+1):
+            
             try:
                 r = getattr(self.session, method)("https://%s/%d/%s" % (self.api_host, self.api_version, uri), params=parameters, files=files)
                 if r.status_code == 200:
-                    break
-            except requests.exceptions.ConnectionError:
+                    return r.json()
+                r.raise_for_status()
+            
+            except requests.exceptions.RequestException as e:
+                last_exception = e
                 continue
+            
             finally:
                 if i > 1:
                     self.logger.info("Try %d or %d", i, max_tries)
-        r.raise_for_status()
-        return r.json()
+        
+        raise last_exception
 
     def _get_token(self, client_secret, mode="r", expiration="30days"):
         modes=("read", "write", "account")

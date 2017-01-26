@@ -4,9 +4,10 @@ Created on 26.01.2017
 @author: glorpen
 '''
 import unittest
-from grello.connection import ConsoleUI, Api
+from grello.connection import ConsoleUI, Api, Connection
 from unittest.mock import patch, MagicMock
 from grello.objects import Member, Board
+from requests.exceptions import ConnectionError, RequestException
 
 class TestUi(unittest.TestCase):
     
@@ -74,4 +75,48 @@ class TestApi(unittest.TestCase):
         obj_getter.assert_called_once_with(Board, id="test_id")
 
 class TestConnection(unittest.TestCase):
-    pass
+    
+    def test_request(self):
+        app_key = "app_key"
+        test_uri = "test_uri"
+        token = "test_token"
+        
+        ui = MagicMock()
+        ui.load_token.return_value = token
+        
+        request_error = RequestException
+        
+        with patch("grello.connection.requests") as r:
+            r.exceptions.RequestException = request_error
+            
+            c = Connection(app_key, ui)
+            
+            r_get = MagicMock()
+            r_get.status_code = 200
+            
+            c_get = r.Session().get
+            c_get.return_value = r_get
+            
+            c.do_request(test_uri, {"param1":1}, "get", files={"file1":"f"})
+            c_get.assert_called_once_with(
+                'https://%s/%d/%s' % (c.api_host, c.api_version, test_uri),
+                files={"file1":"f"},
+                params={"param1":1, "key": app_key, "token": token}
+            )
+            
+            c_get.reset_mock()
+            r_get.status_code = 500
+            r_get.raise_for_status.side_effect = RequestException()
+            with self.assertRaises(RequestException, msg="exception after repeated failure"):
+                c.do_request(test_uri, {})
+            self.assertEqual(c_get.call_count, 3, "repeat request on failure")
+            
+            c_get.reset_mock()
+            c_get.side_effect = RequestException()
+            with self.assertRaises(RequestException, msg="Exception after repeated connection exception"):
+                c.do_request(test_uri, {})
+            self.assertEqual(c_get.call_count, 3, "repeat request on exception")
+    
+    def test_default_ui(self):
+        c = Connection("app_key")
+        self.assertIsInstance(c.ui, ConsoleUI, "default ui is set")
