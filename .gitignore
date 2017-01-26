@@ -1,7 +1,9 @@
 __pycache__
-env/
+/env/
 /.project
 /.pydevproject
-build/
+/build/
 *.egg-info
 dist/
+/.eggs/
+/coverage/
