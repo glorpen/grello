@@ -24,7 +24,7 @@ class ConsoleUI(object):
 
 class Api(Logger):
     
-    def __init__(self, app_key, ui, token_mode='rwa', token_expiration='30days'):
+    def __init__(self, app_key, ui, token_mode=None, token_expiration=None):
         super(Api, self).__init__()
         
         self.ui = ui
@@ -33,10 +33,17 @@ class Api(Logger):
         self.token_expiration = token_expiration
     
     def connect(self, app_secret):
-        c = Connection(
-            app_key=self.app_key, ui=self.ui,
-            token_mode=self.token_mode, token_expiration=self.token_expiration
-        )
+        c_args = {
+            "app_key": self.app_key,
+            "ui": self.ui,
+        }
+        
+        if self.token_mode is not None:
+            c_args['token_mode'] = self.token_mode
+        if self.token_expiration is not None:
+            c_args['token_expiration'] = self.token_expiration
+        
+        c = Connection(**c_args)
         
         self.context = Context(c)
         
@@ -60,7 +67,11 @@ class Connection(Logger):
     api_version = 1
     app_name = "Grello"
     
-    def __init__(self, app_key, ui=None, token_mode="rwa", token_expiration = "30days"):
+    MODE_READ = 1<<0
+    MODE_WRITE = 1<<1
+    MODE_ACCOUNT = 1<<2
+    
+    def __init__(self, app_key, ui=None, token_mode=MODE_READ|MODE_WRITE|MODE_ACCOUNT, token_expiration = "30days"):
         super(Connection, self).__init__()
         self.app_key = app_key
         self.token_mode = token_mode
@@ -102,9 +113,9 @@ class Connection(Logger):
         
         raise last_exception
 
-    def _get_token(self, client_secret, mode="r", expiration="30days"):
-        modes=("read", "write", "account")
-        scope = ",".join([i for i in modes if i[0] in mode])
+    def _get_token(self, client_secret):
+        modes={self.MODE_READ: "read", self.MODE_WRITE: "write", self.MODE_ACCOUNT: "account"}
+        scope = ",".join([name for v,name in modes.items() if v & self.token_mode])
         
         request_token_url = 'https://trello.com/1/OAuthGetRequestToken'
         authorize_url = 'https://trello.com/1/OAuthAuthorizeToken'
@@ -117,7 +128,7 @@ class Connection(Logger):
         url = "{authorize_url}?oauth_token={oauth_token}&scope={scope}&expiration={expiration}&name={app_name}".format(
             authorize_url=authorize_url,
             oauth_token=resource_owner_key,
-            expiration=expiration,
+            expiration=self.token_expiration,
             scope=scope,
             app_name=self.app_name
         )
@@ -132,7 +143,7 @@ class Connection(Logger):
     def assure_token(self, app_secret):
         
         def get_new_token():
-            self.token = self._get_token(app_secret, self.token_mode, self.token_expiration)
+            self.token = self._get_token(app_secret)
             self.ui.save_token(self.token)
         
         if self.token is None:
