@@ -3,12 +3,30 @@ from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
 from os import path
+from distutils.cmd import Command
 
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the README file
 with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
+
+class CoverageCommand(Command):
+    description = "Run coverage tool and generate html raport in ./coverage dir"
+    user_options = []
+    
+    def initialize_options(self):
+        pass
+    def finalize_options(self):
+        pass
+    
+    def run(self):
+        import coverage
+        c = coverage.Coverage(source=["%s/src" % here])
+        c.start()
+        self.run_command("test")
+        c.stop()
+        c.html_report(directory="%s/coverage" % here)
 
 setup(
     name='grello',
@@ -42,4 +60,6 @@ setup(
     package_data={},
     data_files=[],
     entry_points={},
+    test_suite="grello.tests",
+    cmdclass={'coverage': CoverageCommand}
 )
