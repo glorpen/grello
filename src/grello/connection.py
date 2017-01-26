@@ -35,11 +35,9 @@ class Api(Logger):
     
     def connect(self, app_secret):
         c = Connection(
-            self.app_key, token=self.ui.load_token(),
+            app_key=self.app_key, ui=self.ui,
             token_mode=self.token_mode, token_expiration=self.token_expiration
         )
-        c.verify_pin = self.ui.verify_pin
-        c.on_new_token = self.ui.save_token
         
         self.context = Context(c)
         
@@ -55,19 +53,25 @@ class Api(Logger):
         return self.get_any(Board, id=board_id)
     
     def get_me(self):
-        return self.context.repository.get_object(Member, id="me")
+        return self.get_any(Member, id="me")
 
 class Connection(Logger):
     
     api_host = 'api.trello.com'
     api_version = 1
+    app_name = "Grello"
     
-    def __init__(self, app_key, token=None, token_mode="rwa", token_expiration = "30days"):
+    def __init__(self, app_key, ui=None, token_mode="rwa", token_expiration = "30days"):
         super(Connection, self).__init__()
         self.app_key = app_key
-        self.token = token
         self.token_mode = token_mode
         self.token_expiration = token_expiration
+        
+        if ui is None:
+            ui = ConsoleUI()
+        
+        self.ui = ui
+        self.token = ui.load_token()
         
         self.session = requests.Session()
     
@@ -93,29 +97,27 @@ class Connection(Logger):
         r.raise_for_status()
         return r.json()
 
-    def verify_pin(self, url):
-        raise NotImplementedError()
-    
     def _get_token(self, client_secret, mode="r", expiration="30days"):
         modes=("read", "write", "account")
         scope = ",".join([i for i in modes if i[0] in mode])
         
-        request_token_url = 'https://grello.com/1/OAuthGetRequestToken'
-        authorize_url = 'https://grello.com/1/OAuthAuthorizeToken'
-        access_token_url = 'https://grello.com/1/OAuthGetAccessToken'
+        request_token_url = 'https://trello.com/1/OAuthGetRequestToken'
+        authorize_url = 'https://trello.com/1/OAuthAuthorizeToken'
+        access_token_url = 'https://trello.com/1/OAuthGetAccessToken'
 
         session = OAuth1Session(client_key=self.app_key, client_secret=client_secret)
         response = session.fetch_request_token(request_token_url)
         resource_owner_key, resource_owner_secret = response.get('oauth_token'), response.get('oauth_token_secret')
         
-        url = "{authorize_url}?oauth_token={oauth_token}&scope={scope}&expiration={expiration}&name=Grello".format(
+        url = "{authorize_url}?oauth_token={oauth_token}&scope={scope}&expiration={expiration}&name={app_name}".format(
             authorize_url=authorize_url,
             oauth_token=resource_owner_key,
             expiration=expiration,
             scope=scope,
+            app_name=self.app_name
         )
         
-        oauth_verifier = self.verify_pin(url)
+        oauth_verifier = self.ui.verify_pin(url)
         
         session = OAuth1Session(client_key=self.app_key, client_secret=client_secret,
                                 resource_owner_key=resource_owner_key, resource_owner_secret=resource_owner_secret,
@@ -126,7 +128,7 @@ class Connection(Logger):
         
         def get_new_token():
             self.token = self._get_token(app_secret, self.token_mode, self.token_expiration)
-            self.on_new_token(self.token)
+            self.ui.save_token(self.token)
         
         if self.token is None:
             get_new_token()
@@ -138,9 +140,6 @@ class Connection(Logger):
                     get_new_token()
                 else:
                     raise e from None
-    
-    def on_new_token(self, token):
-        pass
     
     def get_token(self, token_id):
         return self.do_request('tokens/%s' % token_id)
