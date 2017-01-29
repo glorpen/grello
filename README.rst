@@ -1,9 +1,16 @@
-=============================
-Grello - a Trello API library
-=============================
+========================================
+Grello - a python library for Trello API
+========================================
+
+Grello allows to easly interact with the Trello API.
+
+This library is based on Trello API documentation: https://developers.trello.com/advanced-reference.
 
 Simple objects with lazy load
 =============================
+
+Tracking object states
+======================
 
 Automatic ID updating
 =====================

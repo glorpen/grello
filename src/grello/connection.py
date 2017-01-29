@@ -101,7 +101,9 @@ class Connection(Logger):
         )
     
     def disconnect(self):
-        self.session.close()
+        if self.session:
+            self.session.close()
+            self.session = None
     
     def do_request(self, *args, **kwargs):
         return self._do_session_request(self.session, *args, **kwargs)

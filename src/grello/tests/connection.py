@@ -14,10 +14,10 @@ class TestUi(unittest.TestCase):
     def test_console(self):
         ui = ConsoleUI()
         
-        self.assertEqual(ui.load_token(), None)
+        self.assertEqual(ui.load_keys(), None)
         
         with patch("grello.connection.print") as p:
-            ui.save_token("asd")
+            ui.save_keys("t", "s")
             self.assertTrue(p.called)
         
         with patch("grello.connection.print") as p:
@@ -51,15 +51,17 @@ class TestApi(unittest.TestCase):
                 con.assert_called_once_with(app_key=app_key, ui=ui, token_mode=token_mode, token_expiration=token_expiration)
                 
                 ctx.assert_called_once_with(con_instance)
-                con_instance.assure_token.assert_called_once_with(app_secret)
+                con_instance.connect.assert_called_once_with(app_secret)
     
     def test_quit(self):
         a = Api(None, None)
         a.context = MagicMock()
+        a.connection = MagicMock()
         
-        a.quit()
+        a.disconnect()
         # context.quit should be called on disconnecting
         a.context.quit.assert_called_once_with()
+        a.connection.disconnect.assert_called_once_with()
     
     def test_global_getters(self):
         a = Api(None, None)
@@ -94,14 +96,16 @@ class TestConnection(unittest.TestCase):
             r_get = MagicMock()
             r_get.status_code = 200
             
-            c_get = r.Session().get
+            c.session = r.Session()
+            
+            c_get = c.session.get
             c_get.return_value = r_get
             
             c.do_request(test_uri, {"param1":1}, "get", files={"file1":"f"})
             c_get.assert_called_once_with(
                 'https://%s/%d/%s' % (c.api_host, c.api_version, test_uri),
                 files={"file1":"f"},
-                params={"param1":1, "key": app_key, "token": token}
+                params={"param1":1}
             )
             
             c_get.reset_mock()
@@ -109,14 +113,32 @@ class TestConnection(unittest.TestCase):
             r_get.raise_for_status.side_effect = RequestException()
             with self.assertRaises(RequestException, msg="exception after repeated failure"):
                 c.do_request(test_uri, {})
-            self.assertEqual(c_get.call_count, 3, "repeat request on failure")
+            self.assertEqual(c_get.call_count, 4, "repeat request on failure")
             
             c_get.reset_mock()
             c_get.side_effect = RequestException()
             with self.assertRaises(RequestException, msg="Exception after repeated connection exception"):
                 c.do_request(test_uri, {})
-            self.assertEqual(c_get.call_count, 3, "repeat request on exception")
+            self.assertEqual(c_get.call_count, 4, "repeat request on exception")
     
     def test_default_ui(self):
         c = Connection("app_key")
         self.assertIsInstance(c.ui, ConsoleUI, "default ui is set")
+    
+    def test_token_creation(self):
+        app_secret = "test_secret"
+        known_token = ("test_token", "test_secret")
+        
+        ui = MagicMock()
+        ui.load_keys.return_value = known_token
+        
+        response = MagicMock()
+        response.status_code = 200
+        
+        with patch("grello.connection.OAuth1Session") as s:
+            s().get.return_value = response
+            c = Connection("app_key", ui=ui)
+            c.connect(app_secret)
+        
+            s().get.assert_called_once_with('https://api.trello.com/1/tokens/test_token', files=None, params=None)
+            # token should be checked for validity
