@@ -4,30 +4,10 @@ Created on 26.01.2017
 @author: glorpen
 '''
 import unittest
-from grello.connection import ConsoleUI, Api, Connection
+from grello.connection import Api, Connection
 from unittest.mock import patch, MagicMock
 from grello.objects import Member, Board
-from requests.exceptions import ConnectionError, RequestException
-
-class TestUi(unittest.TestCase):
-    
-    def test_console(self):
-        ui = ConsoleUI()
-        
-        self.assertEqual(ui.load_keys(), None)
-        
-        with patch("grello.connection.print") as p:
-            ui.save_keys("t", "s")
-            self.assertTrue(p.called)
-        
-        with patch("grello.connection.print") as p:
-            with patch("grello.connection.input") as i:
-                v = "some_value"
-                i.return_value = v
-                ret = ui.verify_pin("some_url")
-                self.assertTrue(p.called)
-                self.assertTrue(i.called)
-                self.assertEqual(ret, v, "Returned value is same as input")
+from requests.exceptions import RequestException
 
 class TestApi(unittest.TestCase):
     def test_connection_creating(self):
@@ -120,10 +100,6 @@ class TestConnection(unittest.TestCase):
             with self.assertRaises(RequestException, msg="Exception after repeated connection exception"):
                 c.do_request(test_uri, {})
             self.assertEqual(c_get.call_count, 4, "repeat request on exception")
-    
-    def test_default_ui(self):
-        c = Connection("app_key")
-        self.assertIsInstance(c.ui, ConsoleUI, "default ui is set")
     
     def test_token_creation(self):
         app_secret = "test_secret"

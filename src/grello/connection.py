@@ -10,18 +10,6 @@ from grello.utils import Logger
 from grello.objects import Board, Member
 from grello.context import Context
 
-class ConsoleUI(object):
-    def verify_pin(self, url):
-        print("Go to the following link in your browser:")
-        print(url)
-        return input('What is the PIN? ')
-    
-    def save_keys(self, token, token_secret):
-        print("New token: %r, %r" % (token, token_secret))
-    
-    def load_keys(self):
-        return None
-
 class Api(Logger):
     
     def __init__(self, app_key, ui, token_mode=None, token_expiration=None):
@@ -78,15 +66,11 @@ class Connection(Logger):
     
     session = None
     
-    def __init__(self, app_key, ui=None, token_mode=MODE_READ|MODE_WRITE|MODE_ACCOUNT, token_expiration = "30days"):
+    def __init__(self, app_key, ui, token_mode=MODE_READ|MODE_WRITE|MODE_ACCOUNT, token_expiration = "30days"):
         super(Connection, self).__init__()
         self.app_key = app_key
         self.token_mode = token_mode
         self.token_expiration = token_expiration
-        
-        if ui is None:
-            ui = ConsoleUI()
-        
         self.ui = ui
     
     def connect(self, app_secret):
