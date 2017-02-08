@@ -1,12 +1,19 @@
 language: python
 python:
-  - "3.3"
-  - "3.4"
-  - "3.5"
-  - "3.6"
+  - '3.3'
+  - '3.4'
+  - '3.5'
+  - '3.6'
 install:
   - pip install .
-before_deploy:
-  - python3 setup.py bdist_wheel coverage
 script:
   - python setup.py test
+deploy:
+  provider: pypi
+  user: 
+  password:
+    secure: CM3wYlrGdgUl0v1c0VIH5EjbQacpoR2t99qG8jc1cGE9AoDZrWuCTFn/YcXhiZGiUPJHNQo7FMHAYTs9HTbgAZm0UYoNNrzfl9Ny3hGLCnqNwHV2tZwaz9k6yq5hSTbiDbQDT3HEVvpVy/bOldt8/7QcXgZhVt0j2oTDixVW/YA2qfPd0A3a4hQEa1GMzMDBpXyiAOcAbce6IYe9Id9l4rX0LaVBZqqzfpZ1gjG314q5mJsd+c1rNm3aSZW+69plBCqRvg5SqoW0CDLSSiiDyxJsJgIR0JmCLUC68hBp+ood+s6wb2CfT/jsNVO/jGLn+aF6oVuP3nOSdl3NnT4Ho0WibjFRm8+fXoRNRCCKeiojrF+2MI8rlK3KXo8icSfA0QaU+dJislfKvspfsCbCo0ZL69DeLhhqCq/Iznc8wYCthTBJRq4+vstRv7/4F69nQN2QFC9s7klvaNkdhxxIcK4Hr7Sku/yhOFWzcvxl4Je+oiowWvx26Wua/ap2tv8MuKfdQgcgzRQGFEzyjvbaex2m00DpB2ui2yJPv9hy73wqamSkCsNP2XtRyLjiqB6Uu8a9cmOuJxFGQa/5VV/Y6XckGH9hRsRmc2mOmDUwY+L6ozyifQdIO1xY5nS/utkl1s957oDRbBbOg2jYTvKBktWSxFf0XZ35gxCSAYbFPaM=
+  distributions: sdist bdist_wheel
+  on:
+    tags: true
+    python: 3.6
