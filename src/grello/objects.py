@@ -335,7 +335,7 @@ class Notification(object):
     @api_field
     def list(self, data, repository):
         if "list" in data["data"]:
-            return repository.get_object(Board, id=data["data"]["list"]["id"])
+            return repository.get_object(List, id=data["data"]["list"]["id"])
     
     def read(self):
         self.unread = False
