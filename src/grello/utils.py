@@ -6,9 +6,8 @@ Created on 29.12.2016
 
 import datetime
 import logging
-from inspect import signature
-import functools
 from collections import OrderedDict
+import inspect
 
 # todo: cache + filling cached objects with new data if already fetched 
 
@@ -51,12 +50,41 @@ class ArgFiller(object):
     @callable.setter
     def callable(self, v):
         self._f = v
-        self._sig = signature(v)
+        self._sig = inspect.signature(v)
+        self._args = {}
+    
+    def _get_other_params(self, names):
+        other = OrderedDict()
+        for n,p in self._sig.parameters.items():
+            if n not in names:
+                other[n] = p
+        
+        return other
+    
+    def _get_next_positional_param(self, bound_args):
+        for p in self._get_other_params(bound_args.keys()).values():
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                return p
+    
+    def _bind_inline(self, args, kwargs, base_args={}):
+        bound_args = base_args.copy()
+        
+        for a in args:
+            p = self._get_next_positional_param(bound_args)
+            if p is None:
+                raise Exception("Positional arg not matched")
+            bound_args[p.name] = a
+        
+        for kn, kv in kwargs.items():
+            other_params = self._get_other_params(bound_args.keys())
+            if kn not in other_params:
+                raise Exception("Keyword arg not found")
+            bound_args[kn] = kv
+        
+        return bound_args
     
     def bind(self, *args, **kwargs):
-        bsig = self._sig.bind_partial(*args, **kwargs)
-        self.callable = functools.partial(self.callable, *bsig.args, **bsig.kwargs)
-        return self
+        self._args = self._bind_inline(args, kwargs, self._args)
     
     def inject(self, context, obj=None):
         p = self._sig.parameters
@@ -80,7 +108,10 @@ class ArgFiller(object):
         return self
     
     def __call__(self, *args, **kwargs):
-        return self.callable(*args, **kwargs)
+        inline_args = self._bind_inline(args, kwargs, self._args)
+        bp = self._sig.bind(**inline_args)
+        return self.callable(*bp.args, **bp.kwargs)
+
 
 def fill_args(f, obj=None, service=None, context=None):
     
@@ -93,4 +124,4 @@ def fill_args(f, obj=None, service=None, context=None):
     if obj or service:
         af.bind(obj or service)
     
-    return af.callable
+    return af
