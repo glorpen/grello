@@ -80,7 +80,7 @@ class Repository(object):
     
     @events.listener("label.removed")
     def on_object_remove(self, source, subject):
-        uid = self._get_object_key(subject.__class__, subject.get_ids())
+        uid = self._get_object_key(subject.__class__, self.get_object_api_data(subject).get_ids())
         self.get_object_cache(subject.__class__).pop(uid, None)
         self.ids.remove(id(subject))
     
