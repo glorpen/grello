@@ -318,6 +318,7 @@ class Notification(object):
     
     ADDED_TO_BOARD = 'addedToBoard'
     CREATED_CARD = 'createdCard'
+    CHANGED_CARD = 'changeCard'
     
     type = simple_api_field("type", writable=False)
     unread = simple_api_field("unread")
