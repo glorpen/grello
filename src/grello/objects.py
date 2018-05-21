@@ -22,7 +22,7 @@ class Attachment(object):
 
 @api_object(
     url = "labels/{id}",
-    default_fields = ("color","name","uses")
+    default_fields = ("color","name")
 )
 class Label(Logger):
     
@@ -38,23 +38,10 @@ class Label(Logger):
     
     name = simple_api_field("name")
     color = simple_api_field("color")
-    uses = simple_api_field("uses", writable=False)
     
     def __repr__(self):
         return "<Label %r:%r>" % (self.name, self.color)
     
-    @events.listener("label.assigned")
-    def on_assigned(self, api_data, source, label, uses = None):
-        if label is self and api_data.loaded:
-            api_data.get_field("uses").value = (self.uses + 1) if uses is None else uses
-            self.logger.debug("Label uses counter incremented")
-    
-    @events.listener("label.unassigned")
-    def on_unassigned(self, api_data, source, label):
-        if label is self and api_data.loaded:
-            api_data.get_field("uses").value = self.uses - 1
-            self.logger.debug("Label uses counter decremented")
-
 @api_object(
     url = "cards/{card_id}/checklist/{checklist_id}/checkItem/{id}",
     default_fields = ("name", "pos", "state")
@@ -163,8 +150,6 @@ class Card(object):
     
     @labels.add
     def labels(self, connection, repository, event_dispatcher, label=None, name=None, color=None):
-        uses = None
-        
         if label:
             connection.do_request("cards/%s/idLabels" % self.id, method="post", parameters={"value":label.id})
         else:
@@ -172,9 +157,8 @@ class Card(object):
             label = repository.get_object(Label, data=data)
             
             event_dispatcher.trigger("label.created", self, label)
-            uses = label.uses
             
-        event_dispatcher.trigger("label.assigned", self, label, uses)
+        event_dispatcher.trigger("label.assigned", self, label)
         
         return label
     
