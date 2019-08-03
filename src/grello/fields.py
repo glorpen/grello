@@ -17,8 +17,8 @@ class ApiData(object):
         self._loader = loader
         self._setter = setter
     
-    def _do_load(self, data):
-        return self._loader(data)
+    def _do_load(self, data, **kwargs):
+        return self._loader(data, **kwargs)
     
     @property
     def loaded(self):
@@ -163,6 +163,14 @@ class ApiCollection(object):
         yield from self.items
     def __len__(self):
         return len(self.items)
+    
+    def __call__(self, **kwargs):
+        return self.__class__(
+            functools.partial(self._items_generator, **kwargs),
+            self._api_add,
+            self._api_remove
+        )
+
 
 class CollectionApiData(ApiData):
     

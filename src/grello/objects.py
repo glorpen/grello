@@ -99,6 +99,10 @@ class Checklist(object):
     default_fields = ("name","desc","subscribed","closed","dueComplete","due","idAttachmentCover","idBoard", "idList")
 )
 class Card(object):
+
+    FILTER_ALL = 'all'
+    FILTER_CLOSED = 'closed'
+    FILTER_VISIBLE = 'visible'
     
     def __repr__(self):
         return "<Card %r>" % self.id
@@ -230,8 +234,11 @@ class List(object):
         return "<List %r>" % self.id
     
     @collection_api_field
-    def cards(self, data, api_data):
-        return api_data.fetch_objects("lists/{id}/cards", Card)
+    def cards(self, data, api_data, filter=Card.FILTER_VISIBLE):
+        url = ""
+        if filter != Card.FILTER_VISIBLE:
+            url = "?filter=%s" % filter
+        return api_data.fetch_objects("lists/{id}/cards" + url, Card)
     
     @cards.add
     def cards(self, repository, connection, name, description=None, members=None, due=None):
