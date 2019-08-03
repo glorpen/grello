@@ -46,3 +46,13 @@ Will print:
    me
    example@example.com
    xxxx9028b29xxf71g236fbxx
+
+Filtered lists
+==============
+
+To control scope of fetched lists you can use additional arguments in call method.
+
+.. sourcecode:: python
+
+   len(some_list.cards) # default list "visible"
+   len(some_list.cards(filter=Card.FILTER_ALL)) # all cards - visible and closed
