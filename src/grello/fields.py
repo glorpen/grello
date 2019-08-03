@@ -161,6 +161,8 @@ class ApiCollection(object):
     
     def __iter__(self):
         yield from self.items
+    def __len__(self):
+        return len(self.items)
 
 class CollectionApiData(ApiData):
     
