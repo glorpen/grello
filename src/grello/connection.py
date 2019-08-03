@@ -104,7 +104,9 @@ class Connection(Logger):
             try:
                 r = getattr(session, method)("https://%s/%d/%s" % (self.api_host, self.api_version, uri), params=parameters, files=files)
                 if r.status_code == 200:
-                    return r.json()
+                    ret = r.json()
+                    self.logger.debug("Response: %r", ret)
+                    return ret
                 elif r.status_code == 401:
                     raise NotAuthorizedException()
                 elif r.status_code == 404:
