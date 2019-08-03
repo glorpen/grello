@@ -119,6 +119,10 @@ class Card(object):
     def list(self, data, repository):
         return repository.get_object(List, id=data["idList"])
     
+    @list.setter
+    def cover(self, connection, list):
+        connection.do_request("cards/%s" % self.id, method="put", parameters={"idList": list.id})
+    
     @due.loader
     def due(self, data):
         if data['due']:
@@ -205,6 +209,13 @@ class Card(object):
     @collection_api_field
     def members(self, data, api_data):
         return api_data.fetch_objects("cards/{id}/members", Member)
+    
+    @members.add
+    def members(self, connection, member):
+        connection.do_request("cards/%s/idMembers" % self.id, method="post", parameters={"value": member.id})
+        return member
+    
+
 
 @api_object(
     url = "lists/{id}"
